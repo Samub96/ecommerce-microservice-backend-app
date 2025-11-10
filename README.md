@@ -12,6 +12,7 @@ I analysed this repository according to the clean code standards on [Better Code
  logging and monitoring, Java SE 11, H2, and MySQL databases, all components developed with TDD in mind, covering integration & performance testing, and many more.
  - This project is going to be developed as stages, and all such stage steps are documented under
   the project **e-Commerce-boot μServices** **README** file <!--[wiki page](https://github.com/mohamed-taman/Springy-Store-Microservices/wiki)-->.
+  
 ---
 ## Getting started
 ### System components Structure
