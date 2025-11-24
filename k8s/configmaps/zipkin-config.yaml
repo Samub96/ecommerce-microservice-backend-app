@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zipkin-config
+  namespace: ecommerce-dev
+data:
+  JAVA_OPTS: "-Xmx512m -Xms256m"
+  STORAGE_TYPE: "mem"
+  ZIPKIN_LOG_LEVEL: "INFO"

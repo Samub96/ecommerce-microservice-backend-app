@@ -1,0 +1,216 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: ecommerce-dev
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'ecommerce-k8s'
+        replica: 'prometheus'
+
+    rule_files:
+      - "ecommerce_rules.yml"
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager:9093
+
+    scrape_configs:
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Kubernetes API server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Kubernetes nodes
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Kubernetes pods
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - ecommerce-dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      # Zipkin metrics
+      - job_name: 'zipkin'
+        static_configs:
+          - targets: ['zipkin-service:9411']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 30s
+
+      # Service Discovery (Eureka) metrics
+      - job_name: 'service-discovery'
+        static_configs:
+          - targets: ['service-discovery-service:8761']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 30s
+
+      # API Gateway metrics
+      - job_name: 'api-gateway'
+        static_configs:
+          - targets: ['api-gateway-service:8080']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Cloud Config metrics
+      - job_name: 'cloud-config'
+        static_configs:
+          - targets: ['cloud-config-service:9296']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 30s
+
+      # User Service metrics
+      - job_name: 'user-service'
+        static_configs:
+          - targets: ['user-service-service:8700']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Product Service metrics
+      - job_name: 'product-service'
+        static_configs:
+          - targets: ['product-service-service:8500']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Order Service metrics
+      - job_name: 'order-service'
+        static_configs:
+          - targets: ['order-service-service:8300']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Payment Service metrics
+      - job_name: 'payment-service'
+        static_configs:
+          - targets: ['payment-service-service:8400']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Shipping Service metrics
+      - job_name: 'shipping-service'
+        static_configs:
+          - targets: ['shipping-service-service:8600']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+      # Favourite Service metrics
+      - job_name: 'favourite-service'
+        static_configs:
+          - targets: ['favourite-service-service:8800']
+        metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s
+
+  ecommerce_rules.yml: |
+    groups:
+      - name: ecommerce.rules
+        rules:
+          # API Gateway health
+          - alert: APIGatewayDown
+            expr: up{job="api-gateway"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "API Gateway is down"
+              description: "API Gateway has been down for more than 1 minute"
+
+          # High response time
+          - alert: HighResponseTime
+            expr: http_server_requests_seconds{quantile="0.95"} > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High response time detected"
+              description: "95th percentile response time is {{ $value }}s for {{ $labels.job }}"
+
+          # High error rate
+          - alert: HighErrorRate
+            expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) / rate(http_server_requests_seconds_count[5m]) > 0.1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High error rate detected"
+              description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.job }}"
+
+          # High CPU usage
+          - alert: HighCPUUsage
+            expr: rate(process_cpu_seconds_total[5m]) > 0.8
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage"
+              description: "CPU usage is {{ $value | humanizePercentage }} for {{ $labels.job }}"
+
+          # High memory usage
+          - alert: HighMemoryUsage
+            expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage"
+              description: "Memory usage is {{ $value | humanizePercentage }} for {{ $labels.job }}"
+
+          # Service down
+          - alert: ServiceDown
+            expr: up{job=~".*-service"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Service {{ $labels.job }} is down"
+              description: "Service {{ $labels.job }} has been down for more than 2 minutes"

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-config
+  namespace: ecommerce-dev
+  labels:
+    app: cloud-config
+    component: config
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloud-config
+  template:
+    metadata:
+      labels:
+        app: cloud-config
+        component: config
+    spec:
+      containers:
+      - name: cloud-config
+        image: samub18/cloud-config-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 9296
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: cloud-config-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9296
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 9296
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: config-storage
+          mountPath: /config-data
+      volumes:
+      - name: config-storage
+        persistentVolumeClaim:
+          claimName: config-pvc
+      imagePullSecrets:
+      - name: docker-registry-secret

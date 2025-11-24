@@ -1,0 +1,81 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: ecommerce-dev
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+spec:
+  tls:
+  - hosts:
+    - ecommerce-api.local
+    - api.ecommerce-dev.com
+    secretName: api-gateway-tls
+  rules:
+  - host: ecommerce-api.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 8080
+  - host: api.ecommerce-dev.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 8080
+---
+# Ingress para servicios administrativos (Eureka, Zipkin, etc.)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-services-ingress
+  namespace: ecommerce-dev
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: admin-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required - Admin Area'
+spec:
+  tls:
+  - hosts:
+    - admin.ecommerce-dev.com
+    secretName: admin-services-tls
+  rules:
+  - host: admin.ecommerce-dev.com
+    http:
+      paths:
+      - path: /eureka
+        pathType: Prefix
+        backend:
+          service:
+            name: service-discovery-service
+            port:
+              number: 8761
+      - path: /zipkin
+        pathType: Prefix
+        backend:
+          service:
+            name: zipkin-service
+            port:
+              number: 9411

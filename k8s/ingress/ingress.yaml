@@ -1,0 +1,102 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: ecommerce-dev
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ecommerce.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 8080
+  - host: zipkin.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zipkin-service
+            port:
+              number: 9411
+  - host: eureka.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-discovery-service
+            port:
+              number: 8761
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-microservices-ingress
+  namespace: ecommerce-dev
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.ecommerce.local
+    http:
+      paths:
+      - path: /users(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: user-service-service
+            port:
+              number: 8700
+      - path: /products(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: product-service-service
+            port:
+              number: 8500
+      - path: /orders(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: order-service-service
+            port:
+              number: 8300
+      - path: /payments(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: payment-service-service
+            port:
+              number: 8400
+      - path: /shipping(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: shipping-service-service
+            port:
+              number: 8600
+      - path: /favourites(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: favourite-service-service
+            port:
+              number: 8800

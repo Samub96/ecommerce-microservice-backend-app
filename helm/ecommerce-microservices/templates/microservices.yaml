@@ -1,0 +1,156 @@
+{{- range $serviceName, $serviceConfig := .Values.microservices }}
+{{- if $serviceConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ecommerce-microservices.deploymentName" (dict "name" $serviceName "Chart" $.Chart "Release" $.Release "Values" $.Values) }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ecommerce-microservices.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $serviceName }}
+  {{- include "ecommerce-microservices.annotations" (dict "port" $serviceConfig.port "Template" $.Template "Values" $.Values) | nindent 2 }}
+spec:
+  replicas: {{ $serviceConfig.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ecommerce-microservices.name" $ }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $serviceName }}
+  template:
+    metadata:
+      labels:
+        {{- include "ecommerce-microservices.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $serviceName }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $serviceConfig.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: {{ include "ecommerce-microservices.serviceAccountName" $ }}
+      {{- include "ecommerce-microservices.securityContext" $ | nindent 6 }}
+      {{- if $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $.Values.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.affinity }}
+      affinity:
+        {{- toYaml $.Values.affinity | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.tolerations }}
+      tolerations:
+        {{- toYaml $.Values.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ $serviceName }}
+        image: {{ include "ecommerce-microservices.image" (dict "image" $serviceConfig.image "Values" $.Values) }}
+        imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+        {{- include "ecommerce-microservices.containerSecurityContext" $ | nindent 8 }}
+        ports:
+        - name: http
+          containerPort: {{ $serviceConfig.port }}
+          protocol: TCP
+        {{- if $serviceConfig.env }}
+        {{- include "ecommerce-microservices.env" $serviceConfig | nindent 8 }}
+        {{- end }}
+        {{- if $serviceConfig.healthCheck }}
+        {{- include "ecommerce-microservices.probes" $serviceConfig | nindent 8 }}
+        {{- end }}
+        {{- if $serviceConfig.resources }}
+        {{- include "ecommerce-microservices.resources" $serviceConfig | nindent 8 }}
+        {{- end }}
+        {{- include "ecommerce-microservices.volumeMounts" $ | nindent 8 }}
+        envFrom:
+        - configMapRef:
+            name: {{ include "ecommerce-microservices.fullname" $ }}-config
+        - secretRef:
+            name: jwt-sealed-secrets
+            optional: true
+        - secretRef:
+            name: database-sealed-secrets
+            optional: true
+      {{- include "ecommerce-microservices.volumes" $ | nindent 6 }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ecommerce-microservices.serviceName" (dict "name" $serviceName "Chart" $.Chart "Release" $.Release "Values" $.Values) }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ecommerce-microservices.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $serviceName }}
+spec:
+  type: {{ $serviceConfig.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ $serviceConfig.service.port | default 80 }}
+    targetPort: {{ $serviceConfig.service.targetPort | default $serviceConfig.port }}
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: {{ include "ecommerce-microservices.name" $ }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: {{ $serviceName }}
+{{- if $.Values.autoscaling.hpa.enabled }}
+---
+{{- $hpaContext := dict "name" $serviceName "Chart" $.Chart "Release" $.Release "Values" $.Values "serviceConfig" $serviceConfig }}
+{{- include "ecommerce-microservices.hpa" $hpaContext }}
+{{- end }}
+{{- if and $.Values.security.networkPolicies.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ecommerce-microservices.deploymentName" (dict "name" $serviceName "Chart" $.Chart "Release" $.Release "Values" $.Values) }}-netpol
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "ecommerce-microservices.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $serviceName }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ecommerce-microservices.name" $ }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $serviceName }}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  {{- include "ecommerce-microservices.networkPolicyRules" $ | nindent 2 }}
+  - ports:
+    - protocol: TCP
+      port: {{ $serviceConfig.port }}
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow communication with other microservices
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: {{ index $.Values.global.labels "part-of" }}
+  # Allow communication with databases
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: mysql
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: redis
+  # Allow HTTPS traffic
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,580 @@
+# ============================================================================
+# CLUSTER AUTOSCALER CONFIGURATION
+# ESCALADO AUTOMÁTICO DE NODOS DEL CLUSTER KUBERNETES
+# ============================================================================
+
+# ============================================================================
+# CLUSTER AUTOSCALER DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        app: cluster-autoscaler
+        component: autoscaling
+        k8s-app: cluster-autoscaler
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8085'
+        prometheus.io/path: '/metrics'
+        cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: cluster-autoscaler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+      - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.28.2
+        name: cluster-autoscaler
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 100m
+            memory: 600Mi
+          requests:
+            cpu: 100m
+            memory: 600Mi
+        command:
+        - ./cluster-autoscaler
+        - --v=4
+        - --stderrthreshold=info
+        - --cloud-provider=azure
+        - --skip-nodes-with-local-storage=false
+        - --expander=least-waste
+        - --node-group-auto-discovery=label:cluster-autoscaler/enabled=true,cluster-autoscaler/ecommerce-cluster=owned
+        - --balance-similar-node-groups
+        - --scale-down-enabled=true
+        - --scale-down-delay-after-add=10m
+        - --scale-down-delay-after-delete=10s
+        - --scale-down-delay-after-failure=3m
+        - --scale-down-unneeded-time=10m
+        - --scale-down-utilization-threshold=0.5
+        - --skip-nodes-with-system-pods=false
+        - --max-node-provision-time=15m
+        - --max-empty-bulk-delete=10
+        - --max-nodes-total=100
+        - --cores-total=0:1000
+        - --memory-total=0:1000000
+        - --new-pod-scale-up-delay=0s
+        - --max-bulk-soft-taint-count=10
+        - --max-bulk-soft-taint-time=3s
+        - --scan-interval=10s
+        - --expendable-pods-priority-cutoff=-10
+        - --ignore-daemonsets-utilization=false
+        - --ignore-mirror-pods-utilization=false
+        - --write-status-configmap
+        - --max-inactivity=10m
+        - --max-failing-time=15m
+        - --balance-similar-node-groups=true
+        - --skip-nodes-with-local-storage=false
+        - --daemonset-eviction-for-empty-nodes=false
+        - --emit-per-nodegroup-metrics=true
+        - --log-file-max-size=1800
+        env:
+        - name: ARM_SUBSCRIPTION_ID
+          valueFrom:
+            secretRef:
+              name: cluster-autoscaler-azure-secret
+              key: subscription-id
+        - name: ARM_RESOURCE_GROUP
+          valueFrom:
+            secretRef:
+              name: cluster-autoscaler-azure-secret
+              key: resource-group
+        - name: ARM_TENANT_ID
+          valueFrom:
+            secretRef:
+              name: cluster-autoscaler-azure-secret
+              key: tenant-id
+        - name: ARM_CLIENT_ID
+          valueFrom:
+            secretRef:
+              name: cluster-autoscaler-azure-secret
+              key: client-id
+        - name: ARM_CLIENT_SECRET
+          valueFrom:
+            secretRef:
+              name: cluster-autoscaler-azure-secret
+              key: client-secret
+        - name: ARM_VM_TYPE
+          value: "AKS"
+        - name: ARM_USE_MANAGED_IDENTITY_EXTENSION
+          value: "false"
+        volumeMounts:
+        - name: ssl-certs
+          mountPath: /etc/ssl/certs/ca-certificates.crt
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health-check
+            port: 8085
+          initialDelaySeconds: 600
+          periodSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /health-check
+            port: 8085
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: ssl-certs
+        hostPath:
+          path: "/etc/ssl/certs/ca-bundle.crt"
+      - name: tmp
+        emptyDir: {}
+      # Tolerations para nodos master y sistema
+      tolerations:
+      - effect: NoSchedule
+        operator: "Equal"
+        key: node-role.kubernetes.io/master
+      - effect: NoSchedule
+        operator: "Equal"
+        key: node-role.kubernetes.io/control-plane
+      - key: CriticalAddonsOnly
+        operator: Exists
+      # Node affinity para asegurar que se ejecute en nodos apropiados
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+
+---
+# ============================================================================
+# SERVICEACCOUNT PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+  annotations:
+    # Para AWS IAM Roles for Service Accounts (IRSA)
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cluster-autoscaler-role"
+
+---
+# ============================================================================
+# CLUSTERROLE PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-autoscaler
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+rules:
+# Core API permissions
+- apiGroups: [""]
+  resources: ["events", "endpoints"]
+  verbs: ["create", "patch"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["pods/status"]
+  verbs: ["update"]
+- apiGroups: [""]
+  resources: ["endpoints"]
+  resourceNames: ["cluster-autoscaler"]
+  verbs: ["get", "update"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["watch", "list", "get", "update"]
+- apiGroups: [""]
+  resources: ["namespaces", "pods", "services", "replicationcontrollers", "persistentvolumeclaims", "persistentvolumes"]
+  verbs: ["watch", "list", "get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["list", "watch", "create", "update", "get"]
+
+# Extensions and apps API
+- apiGroups: ["extensions"]
+  resources: ["replicasets", "daemonsets"]
+  verbs: ["watch", "list", "get"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "replicasets", "daemonsets", "deployments"]
+  verbs: ["watch", "list", "get"]
+
+# Policy API
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["watch", "list"]
+
+# Storage API
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+  verbs: ["watch", "list", "get"]
+
+# Batch API
+- apiGroups: ["batch", "extensions"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "patch"]
+
+# Coordination API for leader election
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["create"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  resourceNames: ["cluster-autoscaler"]
+  verbs: ["get", "update"]
+
+---
+# ============================================================================
+# CLUSTERROLEBINDING PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-autoscaler
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-autoscaler
+subjects:
+- kind: ServiceAccount
+  name: cluster-autoscaler
+  namespace: kube-system
+
+---
+# ============================================================================
+# ROLE PARA CONFIGURACIÓN LOCAL
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["cluster-autoscaler-status", "cluster-autoscaler-priority-expander"]
+  verbs: ["delete", "get", "update", "watch"]
+
+---
+# ============================================================================
+# ROLEBINDING PARA CONFIGURACIÓN LOCAL
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-autoscaler
+subjects:
+- kind: ServiceAccount
+  name: cluster-autoscaler
+  namespace: kube-system
+
+---
+# ============================================================================
+# SERVICE PARA CLUSTER AUTOSCALER METRICS
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+    k8s-app: cluster-autoscaler
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8085'
+    prometheus.io/path: '/metrics'
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8085
+    targetPort: 8085
+    name: metrics
+  selector:
+    app: cluster-autoscaler
+
+---
+# ============================================================================
+# SERVICEMONITOR PARA PROMETHEUS
+# ============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: cluster-autoscaler
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - kube-system
+
+---
+# ============================================================================
+# PODDISRUPTIONBUDGET PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: autoscaling
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cluster-autoscaler
+
+---
+# ============================================================================
+# CONFIGMAP PARA STATUS Y CONFIGURACIÓN
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-autoscaler-config
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: configuration
+data:
+  # Configuración de node groups para diferentes tipos de workloads
+  node-groups.yaml: |
+    nodeGroups:
+    - name: "ecommerce-general"
+      minSize: 2
+      maxSize: 20
+      instanceTypes: ["t3.medium", "t3.large"]
+      taints: []
+      labels:
+        workload-type: "general"
+        cost-optimization: "standard"
+    
+    - name: "ecommerce-cpu-intensive" 
+      minSize: 0
+      maxSize: 15
+      instanceTypes: ["c5.large", "c5.xlarge"]
+      taints:
+      - key: "workload"
+        value: "cpu-intensive"
+        effect: "NoSchedule"
+      labels:
+        workload-type: "cpu-intensive"
+        cost-optimization: "performance"
+    
+    - name: "ecommerce-memory-intensive"
+      minSize: 0
+      maxSize: 10
+      instanceTypes: ["r5.large", "r5.xlarge"]
+      taints:
+      - key: "workload"
+        value: "memory-intensive" 
+        effect: "NoSchedule"
+      labels:
+        workload-type: "memory-intensive"
+        cost-optimization: "performance"
+    
+    - name: "ecommerce-spot-instances"
+      minSize: 0
+      maxSize: 30
+      instanceTypes: ["t3.medium", "t3.large", "c5.large"]
+      taints:
+      - key: "node-type"
+        value: "spot"
+        effect: "NoSchedule"
+      labels:
+        workload-type: "fault-tolerant"
+        cost-optimization: "aggressive"
+        node-lifecycle: "spot"
+
+  # Configuración avanzada del expander
+  expander-config.yaml: |
+    priorities:
+    # Prioridad 1: Nodos spot para cargas fault-tolerant
+    - "10:ecommerce-spot-instances"
+    # Prioridad 2: Nodos generales para cargas normales
+    - "20:ecommerce-general"
+    # Prioridad 3: Nodos especializados solo cuando se necesiten
+    - "30:ecommerce-cpu-intensive"
+    - "30:ecommerce-memory-intensive"
+
+---
+# ============================================================================
+# ALERTAS PROMETHEUS PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cluster-autoscaler-alerts
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: alerting
+spec:
+  groups:
+  - name: cluster-autoscaler.rules
+    interval: 30s
+    rules:
+    # Alert si cluster autoscaler no está funcionando
+    - alert: ClusterAutoscalerDown
+      expr: up{job="cluster-autoscaler"} == 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Cluster Autoscaler is down"
+        description: "Cluster Autoscaler has been down for more than 5 minutes."
+    
+    # Alert si hay muchos nodos unschedulable
+    - alert: ClusterAutoscalerUnschedulablePods
+      expr: cluster_autoscaler_unschedulable_pods_count > 10
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High number of unschedulable pods"
+        description: "{{ $value }} pods cannot be scheduled for more than 2 minutes."
+    
+    # Alert si el scaling está tardando mucho
+    - alert: ClusterAutoscalerScaleUpFailure
+      expr: increase(cluster_autoscaler_failed_scale_ups_total[10m]) > 3
+      labels:
+        severity: warning
+      annotations:
+        summary: "Cluster Autoscaler scale up failures"
+        description: "Cluster Autoscaler has failed to scale up {{ $value }} times in the last 10 minutes."
+    
+    # Alert si hay muchos nodos empty
+    - alert: ClusterAutoscalerTooManyEmptyNodes
+      expr: cluster_autoscaler_nodes_count{state="empty"} > 5
+      for: 15m
+      labels:
+        severity: info
+      annotations:
+        summary: "Too many empty nodes"
+        description: "{{ $value }} empty nodes detected for more than 15 minutes. Consider adjusting scale-down parameters."
+
+---
+# ============================================================================
+# NETWORK POLICY PARA CLUSTER AUTOSCALER
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cluster-autoscaler-network-policy
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: cluster-autoscaler
+  policyTypes:
+  - Egress
+  - Ingress
+  ingress:
+  # Permitir tráfico de Prometheus para scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8085
+  # Permitir tráfico de health checks
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8085
+  egress:
+  # Permitir acceso a Kubernetes API
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443
+  # Permitir acceso a AWS/Cloud APIs
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

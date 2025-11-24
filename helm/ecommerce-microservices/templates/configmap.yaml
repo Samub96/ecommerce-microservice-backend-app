@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ecommerce-microservices.fullname" . }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "ecommerce-microservices.labels" . | nindent 4 }}
+data:
+  # Configuración global de Spring Boot
+  SPRING_PROFILES_ACTIVE: {{ .Values.global.environment | quote }}
+  SPRING_APPLICATION_NAME: "ecommerce-microservices"
+  SERVER_SERVLET_CONTEXT_PATH: "/api/v1"
+  
+  # Configuración de timezone
+  TZ: {{ .Values.global.timezone | quote }}
+  SPRING_JACKSON_TIME_ZONE: {{ .Values.global.timezone | quote }}
+  
+  # Configuración de actuator para monitoring
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "when-authorized"
+  MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILES_HISTOGRAM_HTTP_SERVER_REQUESTS: "true"
+  
+  # Configuración de logging
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: "INFO"
+  LOGGING_LEVEL_ORG_HIBERNATE_SQL: "{{ if eq .Values.global.environment "development" }}DEBUG{{ else }}ERROR{{ end }}"
+  LOGGING_PATTERN_CONSOLE: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  
+  # Configuración de seguridad
+  SPRING_SECURITY_REQUIRE_SSL: "{{ if eq .Values.global.environment "production" }}true{{ else }}false{{ end }}"
+  
+  # Configuración de circuit breaker
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_FAILURE_RATE_THRESHOLD: "50"
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_WAIT_DURATION_IN_OPEN_STATE: "10s"
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_SLIDING_WINDOW_SIZE: "10"
+  
+  # Configuración de rate limiting
+  RESILIENCE4J_RATELIMITER_INSTANCES_DEFAULT_LIMIT_FOR_PERIOD: "100"
+  RESILIENCE4J_RATELIMITER_INSTANCES_DEFAULT_LIMIT_REFRESH_PERIOD: "1s"
+  
+  # Configuración de retry
+  RESILIENCE4J_RETRY_INSTANCES_DEFAULT_MAX_ATTEMPTS: "3"
+  RESILIENCE4J_RETRY_INSTANCES_DEFAULT_WAIT_DURATION: "1s"
+  
+  # URLs de servicios internos (service discovery)
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: "http://{{ include "ecommerce-microservices.serviceName" (dict "name" "service-discovery" "Chart" .Chart "Release" .Release "Values" .Values) }}:80/eureka/"
+  SPRING_CLOUD_CONFIG_URI: "http://{{ include "ecommerce-microservices.serviceName" (dict "name" "cloud-config" "Chart" .Chart "Release" .Release "Values" .Values) }}:80"
+  
+  # Configuración específica por environment
+  {{- if eq .Values.global.environment "development" }}
+  SPRING_JPA_SHOW_SQL: "true"
+  LOGGING_LEVEL_COM_ECOMMERCE: "DEBUG"
+  {{- else if eq .Values.global.environment "staging" }}
+  SPRING_JPA_SHOW_SQL: "false"
+  LOGGING_LEVEL_COM_ECOMMERCE: "INFO"
+  {{- else if eq .Values.global.environment "production" }}
+  SPRING_JPA_SHOW_SQL: "false"
+  LOGGING_LEVEL_COM_ECOMMERCE: "WARN"
+  {{- end }}
+  
+  # Configuración de bases de datos
+  {{- if .Values.mysql.enabled }}
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "{{ if eq .Values.global.environment "production" }}50{{ else }}20{{ end }}"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "{{ if eq .Values.global.environment "production" }}10{{ else }}5{{ end }}"
+  SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT: "300000"
+  SPRING_DATASOURCE_HIKARI_MAX_LIFETIME: "1800000"
+  SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: "30000"
+  
+  # URLs específicas por servicio
+  USER_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/users_db?useSSL=true&serverTimezone=UTC"
+  PRODUCT_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/products_db?useSSL=true&serverTimezone=UTC"
+  ORDER_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/orders_db?useSSL=true&serverTimezone=UTC"
+  PAYMENT_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/payments_db?useSSL=true&serverTimezone=UTC"
+  SHIPPING_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/shipping_db?useSSL=true&serverTimezone=UTC"
+  FAVOURITE_SERVICE_DB_URL: "jdbc:mysql://{{ .Release.Name }}-mysql:3306/favourites_db?useSSL=true&serverTimezone=UTC"
+  {{- end }}
+  
+  {{- if .Values.redis.enabled }}
+  # Configuración de Redis
+  SPRING_REDIS_HOST: "{{ .Release.Name }}-redis-master"
+  SPRING_REDIS_PORT: "6379"
+  SPRING_REDIS_TIMEOUT: "2000ms"
+  SPRING_CACHE_TYPE: "redis"
+  SPRING_CACHE_REDIS_TIME_TO_LIVE: "3600000"
+  {{- end }}
+  
+  {{- if .Values.rabbitmq.enabled }}
+  # Configuración de RabbitMQ
+  SPRING_RABBITMQ_HOST: "{{ .Release.Name }}-rabbitmq"
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: "{{ .Values.rabbitmq.auth.username }}"
+  SPRING_RABBITMQ_VIRTUAL_HOST: "/"
+  {{- end }}
+  
+  {{- if .Values.elasticsearch.enabled }}
+  # Configuración de Elasticsearch
+  ELASTICSEARCH_HOST: "{{ .Release.Name }}-elasticsearch"
+  ELASTICSEARCH_PORT: "9200"
+  ELASTICSEARCH_PROTOCOL: "http"
+  {{- end }}
+  
+  # Configuración de JWT
+  JWT_EXPIRATION: "{{ if eq .Values.global.environment "production" }}86400{{ else if eq .Values.global.environment "staging" }}7200{{ else }}3600{{ end }}"
+  JWT_REFRESH_EXPIRATION: "604800"
+  
+  # Configuración de CORS
+  CORS_ALLOWED_ORIGINS: "{{ if eq .Values.global.environment "production" }}https://ecommerce.example.com,https://admin.ecommerce.example.com{{ else if eq .Values.global.environment "staging" }}https://staging.ecommerce.example.com{{ else }}http://localhost:3000,http://localhost:8080{{ end }}"
+  CORS_ALLOWED_METHODS: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+  CORS_ALLOWED_HEADERS: "*"
+  CORS_ALLOW_CREDENTIALS: "true"
+  CORS_MAX_AGE: "3600"
+  
+  # Configuración de rate limiting específica
+  RATELIMIT_GLOBAL_REQUESTS_PER_MINUTE: "{{ if eq .Values.global.environment "production" }}1000{{ else }}5000{{ end }}"
+  RATELIMIT_USER_REQUESTS_PER_MINUTE: "{{ if eq .Values.global.environment "production" }}100{{ else }}500{{ end }}"
+  RATELIMIT_ADMIN_REQUESTS_PER_MINUTE: "{{ if eq .Values.global.environment "production" }}500{{ else }}1000{{ end }}"
+  
+  # Configuración de monitoring
+  {{- if .Values.monitoring.enabled }}
+  {{- if .Values.monitoring.prometheus.enabled }}
+  MONITORING_PROMETHEUS_ENABLED: "true"
+  MONITORING_PROMETHEUS_SCRAPE_INTERVAL: "{{ .Values.monitoring.prometheus.scrapeInterval }}"
+  {{- end }}
+  {{- if .Values.monitoring.jaeger.enabled }}
+  MONITORING_JAEGER_ENABLED: "true"
+  JAEGER_ENDPOINT: "http://{{ .Release.Name }}-jaeger-collector:14268/api/traces"
+  JAEGER_SAMPLER_TYPE: "probabilistic"
+  JAEGER_SAMPLER_PARAM: "0.1"
+  {{- end }}
+  {{- end }}
+  
+  # Configuración de health checks
+  MANAGEMENT_HEALTH_CIRCUITBREAKERS_ENABLED: "true"
+  MANAGEMENT_HEALTH_RATELIMITERS_ENABLED: "true"
+  
+  # Configuración de archivos y uploads
+  FILE_UPLOAD_MAX_SIZE: "10MB"
+  FILE_UPLOAD_MAX_REQUEST_SIZE: "10MB"
+  FILE_ALLOWED_TYPES: "jpg,jpeg,png,webp,pdf"
+  
+  # Configuración de paginación
+  SPRING_DATA_WEB_PAGEABLE_DEFAULT_PAGE_SIZE: "20"
+  SPRING_DATA_WEB_PAGEABLE_MAX_PAGE_SIZE: "100"
+  
+  # Configuración específica de Kubernetes
+  KUBERNETES_NAMESPACE: {{ .Values.global.namespace | quote }}
+  KUBERNETES_SERVICE_ACCOUNT: {{ include "ecommerce-microservices.serviceAccountName" . | quote }}
+  
+  # Variables de entorno para debugging
+  {{- if eq .Values.global.environment "development" }}
+  SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL: "true"
+  SPRING_JPA_PROPERTIES_HIBERNATE_USE_SQL_COMMENTS: "true"
+  SPRING_JPA_PROPERTIES_HIBERNATE_GENERATE_STATISTICS: "true"
+  {{- end }}

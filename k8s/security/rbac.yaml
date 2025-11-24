@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecommerce-service-account
+  namespace: ecommerce-dev
+  labels:
+    app: ecommerce
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ecommerce-dev
+  name: ecommerce-role
+rules:
+# Permitir lectura de ConfigMaps
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+# Permitir lectura de Secrets (limitado)
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["database-secrets"]  # Solo secrets específicos
+# Permitir lectura de Services para service discovery
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch"]
+# Permitir lectura de endpoints para load balancing
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get", "list", "watch"]
+# Permitir lectura de pods para health checks
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+# Permitir actualización de status de pods
+- apiGroups: [""]
+  resources: ["pods/status"]
+  verbs: ["patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecommerce-role-binding
+  namespace: ecommerce-dev
+subjects:
+- kind: ServiceAccount
+  name: ecommerce-service-account
+  namespace: ecommerce-dev
+roleRef:
+  kind: Role
+  name: ecommerce-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Service Account específico para Service Discovery con permisos ampliados
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-discovery-sa
+  namespace: ecommerce-dev
+  labels:
+    app: service-discovery
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ecommerce-dev
+  name: service-discovery-role
+rules:
+# Permisos ampliados para Eureka
+- apiGroups: [""]
+  resources: ["services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-discovery-role-binding
+  namespace: ecommerce-dev
+subjects:
+- kind: ServiceAccount
+  name: service-discovery-sa
+  namespace: ecommerce-dev
+roleRef:
+  kind: Role
+  name: service-discovery-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Service Account para monitoreo
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-sa
+  namespace: ecommerce-dev
+  labels:
+    app: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ecommerce-dev
+  name: monitoring-role
+rules:
+# Permisos de solo lectura para métricas
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics", "services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-role-binding
+  namespace: ecommerce-dev
+subjects:
+- kind: ServiceAccount
+  name: monitoring-sa
+  namespace: ecommerce-dev
+roleRef:
+  kind: Role
+  name: monitoring-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# ClusterRole para permitir lectura de nodos (necesario para métricas del cluster)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ecommerce-cluster-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ecommerce-cluster-reader-binding
+subjects:
+- kind: ServiceAccount
+  name: monitoring-sa
+  namespace: ecommerce-dev
+- kind: ServiceAccount
+  name: service-discovery-sa
+  namespace: ecommerce-dev
+roleRef:
+  kind: ClusterRole
+  name: ecommerce-cluster-reader
+  apiGroup: rbac.authorization.k8s.io

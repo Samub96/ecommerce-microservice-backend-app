@@ -1,0 +1,418 @@
+# ============================================================================
+# AZURE-SPECIFIC CONFIGURATIONS
+# CONFIGURACIONES ESPECÍFICAS PARA AZURE KUBERNETES SERVICE (AKS)
+# ============================================================================
+
+# ============================================================================
+# STORAGE CLASSES OPTIMIZADAS PARA AZURE
+# ============================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-disk-premium-ssd
+  labels:
+    app: azure
+    component: storage
+    tier: premium
+parameters:
+  storageaccounttype: Premium_LRS
+  kind: Managed
+  caching: ReadOnly
+provisioner: kubernetes.io/azure-disk
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+mountOptions:
+- dir_mode=0777
+- file_mode=0777
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-disk-standard-ssd
+  labels:
+    app: azure
+    component: storage
+    tier: standard
+parameters:
+  storageaccounttype: StandardSSD_LRS
+  kind: Managed
+  caching: ReadOnly
+provisioner: kubernetes.io/azure-disk
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-file-premium
+  labels:
+    app: azure
+    component: storage
+    tier: premium-file
+parameters:
+  skuName: Premium_LRS
+  location: eastus
+  storageAccount: ecommercefileshare
+provisioner: kubernetes.io/azure-file
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+reclaimPolicy: Retain
+mountOptions:
+- dir_mode=0777
+- file_mode=0777
+- uid=0
+- gid=0
+- nobrl
+- cache=strict
+
+---
+# ============================================================================
+# AZURE CONTAINER REGISTRY SECRET
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-container-registry
+  namespace: default
+  labels:
+    app: azure
+    component: registry
+type: kubernetes.io/dockerconfigjson
+data:
+  # Actualizar con tus credenciales de ACR
+  # az acr credential show --name myregistry
+  .dockerconfigjson: |
+    {
+      "auths": {
+        "ecommerceacr.azurecr.io": {
+          "username": "ecommerceacr",
+          "password": "YOUR_ACR_PASSWORD",
+          "auth": "BASE64_ENCODED_USERNAME:PASSWORD"
+        }
+      }
+    }
+
+---
+# ============================================================================
+# AZURE KEY VAULT INTEGRATION
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-keyvault-secret
+  namespace: default
+  labels:
+    app: azure
+    component: keyvault
+type: Opaque
+data:
+  # Azure Service Principal para acceso a Key Vault
+  AZURE_CLIENT_ID: "YOUR_CLIENT_ID_BASE64"
+  AZURE_CLIENT_SECRET: "YOUR_CLIENT_SECRET_BASE64"
+  AZURE_TENANT_ID: "YOUR_TENANT_ID_BASE64"
+
+---
+# ============================================================================
+# CLUSTER AUTOSCALER AZURE SECRET
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-autoscaler-azure-secret
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+    component: azure-auth
+type: Opaque
+data:
+  # Credenciales del Service Principal para Cluster Autoscaler
+  # Obtener con: az ad sp create-for-rbac --role="Contributor" --scopes="/subscriptions/{subscription-id}/resourceGroups/{resource-group}"
+  subscription-id: "YOUR_SUBSCRIPTION_ID_BASE64"
+  resource-group: "YOUR_RESOURCE_GROUP_BASE64"
+  tenant-id: "YOUR_TENANT_ID_BASE64"
+  client-id: "YOUR_CLIENT_ID_BASE64"
+  client-secret: "YOUR_CLIENT_SECRET_BASE64"
+
+---
+# ============================================================================
+# AZURE DISK CSI DRIVER CONFIGURATION
+# ============================================================================
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: disk.csi.azure.com
+  labels:
+    app: azure
+    component: csi-driver
+spec:
+  attachRequired: true
+  podInfoOnMount: false
+  volumeLifecycleModes:
+  - Persistent
+  - Ephemeral
+  fsGroupPolicy: File
+
+---
+# ============================================================================
+# AZURE LOAD BALANCER ANNOTATIONS REFERENCE
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-lb-annotations
+  namespace: default
+  labels:
+    app: azure
+    component: load-balancer-config
+data:
+  annotations-reference.yaml: |
+    # Azure Load Balancer Annotations para Services
+    annotations:
+      # Tipo de Load Balancer
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"  # Internal LB
+      
+      # Subnet específico para Internal LB
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "internal-subnet"
+      
+      # Asignación de IP estática
+      service.beta.kubernetes.io/azure-load-balancer-static-ip: "10.0.0.100"
+      
+      # Protocolo de health probe
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol: "http"
+      
+      # Modo de distribución de carga
+      service.beta.kubernetes.io/azure-load-balancer-mode: "shared"  # shared/auto
+      
+      # Asignación a zona específica
+      service.beta.kubernetes.io/azure-load-balancer-resource-group: "MC_myResourceGroup_myCluster_eastus"
+
+---
+# ============================================================================
+# AZURE INGRESS CONTROLLER WITH APPLICATION GATEWAY
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-application-gateway-config
+  namespace: default
+  labels:
+    app: azure
+    component: ingress-config
+data:
+  appgw-config.yaml: |
+    # Application Gateway Ingress Controller Configuration
+    # Instalar con Helm:
+    # helm repo add application-gateway-kubernetes-ingress https://appgwingress.blob.core.windows.net/ingress-azure-helm-package/
+    # helm repo update
+    # helm install ingress-azure application-gateway-kubernetes-ingress/ingress-azure \
+    #   --namespace default \
+    #   --set appgw.name=myApplicationGateway \
+    #   --set appgw.resourceGroup=myResourceGroup \
+    #   --set appgw.subscriptionId=mySubscriptionId \
+    #   --set appgw.shared=false \
+    #   --set armAuth.type=servicePrincipal \
+    #   --set armAuth.secretJSON=$(az ad sp create-for-rbac | base64 -w0) \
+    #   --set rbac.enabled=true \
+    #   --set verbosityLevel=3 \
+    #   --set kubernetes.watchNamespace=default
+
+---
+# ============================================================================
+# AZURE MONITOR INTEGRATION
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-monitor-config
+  namespace: monitoring
+  labels:
+    app: azure
+    component: monitoring
+data:
+  container-insights-config.yaml: |
+    # Azure Monitor para Containers
+    # Habilitar Container Insights:
+    # az aks enable-addons --resource-group myResourceGroup --name myAKSCluster --addons monitoring
+    
+    # Configuración de Log Analytics Workspace
+    logAnalyticsWorkspace:
+      workspaceId: "YOUR_WORKSPACE_ID"
+      workspaceKey: "YOUR_WORKSPACE_KEY"
+    
+    # Métricas personalizadas
+    customMetrics:
+      enabled: true
+      interval: 60s
+      namespaces:
+        - default
+        - monitoring
+        - keda-system
+    
+    # Configuración de Prometheus scraping
+    prometheus:
+      enabled: true
+      scrapeInterval: 30s
+      evaluationInterval: 30s
+      targets:
+        - job_name: 'kubernetes-apiservers'
+          kubernetes_sd_configs:
+          - role: endpoints
+          relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+---
+# ============================================================================
+# AZURE BACKUP CONFIGURATION FOR AKS
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-backup-config
+  namespace: default
+  labels:
+    app: azure
+    component: backup
+data:
+  backup-policy.yaml: |
+    # Azure Backup para AKS
+    # Configuración de Azure Backup:
+    
+    backupPolicy:
+      name: "ecommerce-aks-backup"
+      retentionPolicy:
+        dailyBackups: 30
+        weeklyBackups: 12
+        monthlyBackups: 12
+        yearlyBackups: 5
+      
+      schedulePolicy:
+        dailyBackup:
+          scheduleRunTimes: ["02:00"]
+        weeklyBackup:
+          scheduleRunDays: ["Sunday"]
+          scheduleRunTimes: ["03:00"]
+      
+      excludeVolumes:
+        - name: "temp-storage"
+        - name: "cache-storage"
+      
+      includeNamespaces:
+        - default
+        - monitoring
+        - keda-system
+
+---
+# ============================================================================
+# AZURE IDENTITY AND RBAC INTEGRATION
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-identity-secret
+  namespace: default
+  labels:
+    app: azure
+    component: identity
+type: Opaque
+data:
+  # Azure Active Directory Integration
+  # Para Pod Identity: https://azure.github.io/aad-pod-identity/
+  azure-client-id: "YOUR_CLIENT_ID_BASE64"
+  azure-client-secret: "YOUR_CLIENT_SECRET_BASE64" 
+  azure-tenant-id: "YOUR_TENANT_ID_BASE64"
+  azure-subscription-id: "YOUR_SUBSCRIPTION_ID_BASE64"
+
+---
+# ============================================================================
+# AZURE NETWORK POLICY WITH CALICO
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-network-policy-config
+  namespace: kube-system
+  labels:
+    app: azure
+    component: network-policy
+data:
+  calico-config.yaml: |
+    # Azure CNI con Calico Network Policies
+    # Habilitar en AKS:
+    # az aks create \
+    #   --resource-group myResourceGroup \
+    #   --name myAKSCluster \
+    #   --network-plugin azure \
+    #   --network-policy calico
+    
+    # Configuración de Calico
+    calicoConfig:
+      felixConfiguration:
+        defaultEndpointToHostAction: ACCEPT
+        ipipEnabled: false
+        natPortRange: "1024:65535"
+        reportingInterval: 60s
+      
+      # IP Pool Configuration
+      ipPools:
+        - cidr: 10.240.0.0/16
+          blockSize: 26
+          natOutgoing: true
+          disabled: false
+
+---
+# ============================================================================
+# AZURE SERVICE BUS INTEGRATION (for KEDA)
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-servicebus-secret
+  namespace: default
+  labels:
+    app: azure
+    component: servicebus
+type: Opaque
+data:
+  # Azure Service Bus connection strings para KEDA
+  servicebus-connectionstring: "Endpoint=sb://ecommerce-servicebus.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=YOUR_KEY"
+
+---
+# ============================================================================
+# AZURE DNS ZONE INTEGRATION
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-dns-config
+  namespace: default
+  labels:
+    app: azure
+    component: dns
+data:
+  dns-configuration.yaml: |
+    # Azure DNS Integration
+    # Para External DNS con Azure DNS:
+    
+    externalDNS:
+      provider: azure
+      azure:
+        resourceGroup: "dns-resource-group"
+        subscriptionId: "YOUR_SUBSCRIPTION_ID"
+        tenantId: "YOUR_TENANT_ID"
+        aadClientId: "YOUR_CLIENT_ID"
+        aadClientSecret: "YOUR_CLIENT_SECRET"
+      
+      # Zonas DNS a gestionar
+      domainFilters:
+        - ecommerce.azure.com
+        - api.ecommerce.azure.com
+      
+      # Configuración de registro
+      txtOwnerId: "ecommerce-aks-cluster"
+      txtPrefix: "external-dns"

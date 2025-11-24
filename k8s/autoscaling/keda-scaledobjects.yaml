@@ -1,0 +1,529 @@
+# ============================================================================
+# KEDA SCALEDOBJECTS PARA EVENT-DRIVEN AUTOSCALING
+# CONFIGURACIONES ESPECÍFICAS PARA MICROSERVICIOS ECOMMERCE
+# ============================================================================
+
+# ============================================================================
+# SCALEDOBJECT PARA USER-SERVICE BASADO EN REDIS QUEUE
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: user-service-scaledobject
+  namespace: default
+  labels:
+    app: user-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: user-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 30
+  cooldownPeriod: 300
+  idleReplicaCount: 1
+  minReplicaCount: 2
+  maxReplicaCount: 15
+  fallback:
+    failureThreshold: 3
+    replicas: 5
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      name: user-service-keda-hpa
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 30
+  triggers:
+  # Redis Queue Length para registros de usuarios
+  - type: redis
+    metadata:
+      address: redis-master.default.svc.cluster.local:6379
+      listName: user_registration_queue
+      listLength: '5'
+      enableTLS: 'false'
+    authenticationRef:
+      name: redis-auth
+  
+  # Prometheus Metric - Request Rate
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: http_requests_per_second_user_service
+      threshold: '100'
+      query: sum(rate(http_requests_total{job="user-service"}[1m]))
+  
+  # MySQL Connection Pool
+  - type: mysql
+    metadata:
+      host: mysql-master.default.svc.cluster.local
+      port: '3306'
+      dbName: user_db
+      metricName: mysql_connections
+      targetValue: '80'
+      query: 'SELECT COUNT(*) FROM information_schema.processlist WHERE DB="user_db"'
+    authenticationRef:
+      name: mysql-auth
+  
+  # Kafka Consumer Lag
+  - type: kafka
+    metadata:
+      bootstrapServers: kafka.default.svc.cluster.local:9092
+      consumerGroup: user-service-consumers
+      topic: user-events
+      lagThreshold: '10'
+      offsetResetPolicy: latest
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA ORDER-SERVICE BASADO EN MÚLTIPLES MÉTRICAS
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-service-scaledobject
+  namespace: default
+  labels:
+    app: order-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: order-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 15  # Polling más frecuente para órdenes
+  cooldownPeriod: 180  # Cooldown más corto para respuesta rápida
+  idleReplicaCount: 2
+  minReplicaCount: 3
+  maxReplicaCount: 30
+  fallback:
+    failureThreshold: 2
+    replicas: 8
+  advanced:
+    restoreToOriginalReplicaCount: false
+  triggers:
+  # RabbitMQ Queue para órdenes pendientes
+  - type: rabbitmq
+    metadata:
+      protocol: amqp
+      host: rabbitmq.default.svc.cluster.local:5672
+      vhostName: ecommerce
+      queueName: order_processing_queue
+      queueLength: '10'
+      mode: QueueLength
+    authenticationRef:
+      name: rabbitmq-auth
+  
+  # Prometheus - Orders per minute
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: orders_per_minute
+      threshold: '50'
+      query: sum(rate(orders_created_total[1m])) * 60
+  
+  # External metric - Payment queue depth
+  - type: external-push
+    metadata:
+      scalerAddress: payment-queue-scaler.default.svc.cluster.local:9090
+      metricName: payment_queue_depth
+      targetValue: '15'
+  
+  # CPU utilization from Prometheus
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: cpu_usage_percentage
+      threshold: '70'
+      query: sum(rate(container_cpu_usage_seconds_total{pod=~"order-service-.*"}[2m])) / sum(container_spec_cpu_quota{pod=~"order-service-.*"}/container_spec_cpu_period{pod=~"order-service-.*"}) * 100
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA PAYMENT-SERVICE BASADO EN TRANSACCIONES
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: payment-service-scaledobject
+  namespace: default
+  labels:
+    app: payment-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: payment-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 20
+  cooldownPeriod: 600  # Cooldown largo para transacciones financieras
+  idleReplicaCount: 2
+  minReplicaCount: 3
+  maxReplicaCount: 20
+  fallback:
+    failureThreshold: 2
+    replicas: 6
+  triggers:
+  # Redis Streams para transacciones pendientes
+  - type: redis-streams
+    metadata:
+      address: redis-master.default.svc.cluster.local:6379
+      stream: payment_transactions
+      consumerGroup: payment-processors
+      pendingEntriesCount: '5'
+      enableTLS: 'false'
+    authenticationRef:
+      name: redis-auth
+  
+  # Prometheus - Payment transaction rate
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: payment_transaction_rate
+      threshold: '25'
+      query: sum(rate(payment_transactions_total[2m]))
+  
+  # External fraud detection queue
+  - type: external
+    metadata:
+      scalerAddress: fraud-detection-scaler.default.svc.cluster.local:8080
+      metricName: fraud_detection_queue
+      targetValue: '8'
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA PRODUCT-SERVICE BASADO EN BÚSQUEDAS
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: product-service-scaledobject
+  namespace: default
+  labels:
+    app: product-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: product-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 30
+  cooldownPeriod: 300
+  idleReplicaCount: 1
+  minReplicaCount: 2
+  maxReplicaCount: 15
+  triggers:
+  # Elasticsearch query load
+  - type: elasticsearch
+    metadata:
+      addresses: http://elasticsearch-logging.monitoring.svc.cluster.local:9200
+      index: product-search-logs-*
+      searchTemplateName: search_rate_template
+      valueLocation: hits.total.value
+      targetValue: '100'
+      parameters: time_period=5m
+  
+  # Redis cache miss rate
+  - type: redis
+    metadata:
+      address: redis-master.default.svc.cluster.local:6379
+      listName: product_cache_misses
+      listLength: '20'
+    authenticationRef:
+      name: redis-auth
+  
+  # HTTP request rate
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: product_search_requests
+      threshold: '150'
+      query: sum(rate(http_requests_total{job="product-service",endpoint="/search"}[1m]))
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA API-GATEWAY BASADO EN TRÁFICO TOTAL
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: api-gateway-scaledobject
+  namespace: default
+  labels:
+    app: api-gateway
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: api-gateway
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 15
+  cooldownPeriod: 240
+  idleReplicaCount: 2
+  minReplicaCount: 3
+  maxReplicaCount: 25
+  triggers:
+  # HTTP requests per second
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: gateway_requests_per_second
+      threshold: '200'
+      query: sum(rate(http_requests_total{job="api-gateway"}[1m]))
+  
+  # Active connections
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: active_connections
+      threshold: '500'
+      query: sum(nginx_http_connections{state="active",job="api-gateway"})
+  
+  # Response time 95th percentile
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: response_time_p95
+      threshold: '2'
+      query: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="api-gateway"}[2m])) by (le))
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA SHIPPING-SERVICE BASADO EN ENVÍOS PENDIENTES
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: shipping-service-scaledobject
+  namespace: default
+  labels:
+    app: shipping-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: shipping-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 45
+  cooldownPeriod: 600
+  idleReplicaCount: 1
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  triggers:
+  # PostgreSQL pending shipments
+  - type: postgresql
+    metadata:
+      connection: postgresql://shipping_user:password@postgres.default.svc.cluster.local:5432/shipping_db?sslmode=require
+      query: SELECT COUNT(*) FROM shipments WHERE status = 'pending'
+      targetQueryValue: '50'
+    authenticationRef:
+      name: postgres-auth
+  
+  # SQS queue for shipping events
+  - type: aws-sqs-queue
+    metadata:
+      queueURL: https://sqs.us-east-1.amazonaws.com/123456789/shipping-events
+      queueLength: '10'
+      awsRegion: us-east-1
+    authenticationRef:
+      name: aws-credentials
+  
+  # Prometheus shipping rate
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+      metricName: shipping_requests_rate
+      threshold: '30'
+      query: sum(rate(shipping_requests_total[5m]))
+
+---
+# ============================================================================
+# SCALEDOBJECT PARA NOTIFICATION-SERVICE BASADO EN COLAS DE NOTIFICACIONES
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notification-service-scaledobject
+  namespace: default
+  labels:
+    app: notification-service
+    component: keda-autoscaling
+spec:
+  scaleTargetRef:
+    name: notification-service
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: 60
+  cooldownPeriod: 300
+  idleReplicaCount: 1
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  triggers:
+  # Apache Pulsar queue
+  - type: pulsar
+    metadata:
+      adminURL: http://pulsar-admin.default.svc.cluster.local:8080
+      topic: persistent://ecommerce/notifications/email-queue
+      subscription: notification-service
+      msgBacklog: '100'
+  
+  # Redis pub/sub channels
+  - type: redis
+    metadata:
+      address: redis-master.default.svc.cluster.local:6379
+      listName: sms_notifications
+      listLength: '25'
+    authenticationRef:
+      name: redis-auth
+
+---
+# ============================================================================
+# TRIGGER AUTHENTICATIONS PARA KEDA
+# ============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redis-auth
+  namespace: default
+spec:
+  secretTargetRef:
+  - parameter: password
+    name: redis-secret
+    key: password
+
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: mysql-auth
+  namespace: default
+spec:
+  secretTargetRef:
+  - parameter: username
+    name: mysql-secret
+    key: username
+  - parameter: password
+    name: mysql-secret
+    key: password
+
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq-auth
+  namespace: default
+spec:
+  secretTargetRef:
+  - parameter: username
+    name: rabbitmq-secret
+    key: username
+  - parameter: password
+    name: rabbitmq-secret
+    key: password
+
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: postgres-auth
+  namespace: default
+spec:
+  secretTargetRef:
+  - parameter: connection
+    name: postgres-secret
+    key: connection-string
+
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: aws-credentials
+  namespace: default
+spec:
+  secretTargetRef:
+  - parameter: awsAccessKeyID
+    name: aws-secret
+    key: access-key-id
+  - parameter: awsSecretAccessKey
+    name: aws-secret
+    key: secret-access-key
+
+---
+# ============================================================================
+# SECRETS PARA AUTHENTICATION (EJEMPLOS)
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: default
+  labels:
+    app: redis
+    component: authentication
+type: Opaque
+data:
+  password: cmVkaXMtcGFzc3dvcmQ=  # redis-password
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: default
+  labels:
+    app: mysql
+    component: authentication
+type: Opaque
+data:
+  username: bXlzcWwtdXNlcg==  # mysql-user
+  password: bXlzcWwtcGFzc3dvcmQ=  # mysql-password
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secret
+  namespace: default
+  labels:
+    app: rabbitmq
+    component: authentication
+type: Opaque
+data:
+  username: cmFiYml0bXEtdXNlcg==  # rabbitmq-user
+  password: cmFiYml0bXEtcGFzc3dvcmQ=  # rabbitmq-password
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: default
+  labels:
+    app: postgres
+    component: authentication
+type: Opaque
+data:
+  connection-string: cG9zdGdyZXNxbDovL3NoaXBwaW5nX3VzZXI6cGFzc3dvcmRAcG9zdGdyZXMuZGVmYXVsdC5zdmMuY2x1c3Rlci5sb2NhbDo1NDMyL3NoaXBwaW5nX2RiP3NzbG1vZGU9cmVxdWlyZQ==
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-secret
+  namespace: default
+  labels:
+    app: aws
+    component: authentication
+type: Opaque
+data:
+  access-key-id: QUtJQUlPU0ZPRE5OMDdFWEFNUExF  # AKIAIOSFODNN07EXAMPLE
+  secret-access-key: d0phbHJYVXRuRkVNSS9LN01ERU5HL2JQeFJmaUNZRVhBTVBMRUtFWQ==  # wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY

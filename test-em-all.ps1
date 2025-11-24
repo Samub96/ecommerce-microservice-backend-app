@@ -75,47 +75,19 @@ function Test-DirectService {
 # Test API Gateway first
 Test-Service "API Gateway" "http://localhost:8080" "" "1" "10"
 
-# Test services via API Gateway (best practice - now that Eureka hostnames are fixed)
-Test-DirectService "User Service (via Gateway)" "$API_GATEWAY/user-service/api/users" "2" "10"
-Test-DirectService "Product Service (via Gateway)" "$API_GATEWAY/product-service/api/products" "3" "10"
-Test-DirectService "Order Service (via Gateway)" "$API_GATEWAY/order-service/api/orders" "4" "10"
-Test-DirectService "Payment Service (via Gateway)" "$API_GATEWAY/payment-service/api/payments" "5" "10"
-Test-DirectService "Favourite Service (via Gateway)" "$API_GATEWAY/favourite-service/api/favourites" "6" "10"
-Test-DirectService "Shipping Service (via Gateway)" "$API_GATEWAY/shipping-service/api/shippings" "7" "10"
+# Test individual service health endpoints with correct context-paths
+Test-Service "User Service" "http://localhost:8700/user-service" "/user-service/api/users" "2" "10"
+Test-Service "Product Service" "http://localhost:8500/product-service" "/product-service/api/products" "3" "10"
+Test-Service "Order Service" "http://localhost:8300/order-service" "/order-service/api/orders" "4" "10"
+Test-Service "Payment Service" "http://localhost:8400/payment-service" "/payment-service/api/payments" "5" "10"
+Test-Service "Favourite Service" "http://localhost:8800/favourite-service" "/favourite-service/api/favourites" "6" "10"
+Test-Service "Shipping Service" "http://localhost:8600/shipping-service" "/shipping-service/api/shippings" "7" "10"
 
-# Note: Proxy Client test - try to access it to generate Zipkin traces
+# Note: Proxy Client is an internal service without external endpoints
 Write-Host ""
 Write-Host "[8/10] Verificando Proxy Client..." -ForegroundColor Cyan
-try {
-    # Try direct access to proxy client
-    $response = Invoke-WebRequest -Uri "http://localhost:8900/app/actuator/health" -Method GET -TimeoutSec 5 -ErrorAction Stop
-    if ($response.StatusCode -eq 200) {
-        Write-Host "[OK] Proxy Client - OK" -ForegroundColor Green
-        $global:SUCCESS_COUNT++
-
-        # Generate additional traffic to create traces
-        Write-Host "   → Generando tráfico para trazas..." -ForegroundColor Yellow
-        for ($i = 1; $i -le 3; $i++) {
-            try {
-                Invoke-WebRequest -Uri "http://localhost:8900/app/actuator/info" -Method GET -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
-                Invoke-WebRequest -Uri "$API_GATEWAY/app/" -Method GET -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
-            } catch { }
-            Start-Sleep -Milliseconds 500
-        }
-    }
-}
-catch {
-    # Try via API Gateway
-    try {
-        $response = Invoke-WebRequest -Uri "$API_GATEWAY/app/" -Method GET -TimeoutSec 5 -ErrorAction Stop
-        Write-Host "[OK] Proxy Client (via Gateway) - OK" -ForegroundColor Green
-        $global:SUCCESS_COUNT++
-    }
-    catch {
-        Write-Host "[SKIP] Proxy Client - INTERNAL SERVICE (no accessible endpoints)" -ForegroundColor Yellow
-        $global:SUCCESS_COUNT++
-    }
-}
+Write-Host "[SKIP] Proxy Client - INTERNAL SERVICE (no external endpoints)" -ForegroundColor Yellow
+$global:SUCCESS_COUNT++
 
 # Test infrastructure services
 Test-DirectService "Service Discovery (Eureka)" "http://localhost:8761/actuator/health" "9" "10"

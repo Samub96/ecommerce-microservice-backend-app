@@ -1,0 +1,759 @@
+# ============================================================================
+# KEDA (KUBERNETES EVENT-DRIVEN AUTOSCALING) DEPLOYMENT
+# ============================================================================
+
+# Namespace para KEDA
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keda-system
+  labels:
+    name: keda-system
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/version: "2.12.0"
+    app.kubernetes.io/part-of: keda-operator
+
+---
+# ============================================================================
+# KEDA OPERATOR DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keda-operator
+  namespace: keda-system
+  labels:
+    app: keda-operator
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/version: "2.12.0"
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keda-operator
+  template:
+    metadata:
+      labels:
+        app: keda-operator
+        app.kubernetes.io/name: keda-operator
+        app.kubernetes.io/version: "2.12.0"
+        app.kubernetes.io/component: operator
+        app.kubernetes.io/part-of: keda
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      serviceAccountName: keda-operator
+      containers:
+      - name: keda-operator
+        image: ghcr.io/kedacore/keda:2.12.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        command:
+        - keda
+        args:
+        - '--leader-elect'
+        - '--zap-log-level=info'
+        - '--zap-encoder=console'
+        - '--zap-time-encoding=rfc3339'
+        - '--cert-dir=/tmp/k8s-webhook-server/serving-certs'
+        - '--health-probe-bind-address=:8081'
+        - '--metrics-bind-address=:8080'
+        - '--livez-bind-address=:8080'
+        - '--readyz-bind-address=:8081'
+        env:
+        - name: WATCH_NAMESPACE
+          value: ""
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: OPERATOR_NAME
+          value: "keda-operator"
+        - name: KEDA_HTTP_DEFAULT_TIMEOUT
+          value: "3000"
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: healthz
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 8080
+          initialDelaySeconds: 25
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 1000m
+            memory: 1000Mi
+        volumeMounts:
+        - name: certs
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: certs
+        secret:
+          defaultMode: 420
+          secretName: keda-operator-certs
+      - name: tmp
+        emptyDir: {}
+      # Anti-affinity para HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: keda-operator
+              topologyKey: kubernetes.io/hostname
+
+---
+# ============================================================================
+# KEDA METRICS SERVER DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keda-metrics-apiserver
+  namespace: keda-system
+  labels:
+    app: keda-metrics-apiserver
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/version: "2.12.0"
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keda-metrics-apiserver
+  template:
+    metadata:
+      labels:
+        app: keda-metrics-apiserver
+        app.kubernetes.io/name: keda-metrics-apiserver
+        app.kubernetes.io/version: "2.12.0"
+        app.kubernetes.io/component: metrics-apiserver
+        app.kubernetes.io/part-of: keda
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      serviceAccountName: keda-metrics-apiserver
+      containers:
+      - name: keda-metrics-apiserver
+        image: ghcr.io/kedacore/keda-metrics-apiserver:2.12.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        args:
+        - '--client-ca-file=/tmp/k8s-metrics-server/serving-certs/ca.crt'
+        - '--tls-cert-file=/tmp/k8s-metrics-server/serving-certs/tls.crt'
+        - '--tls-private-key-file=/tmp/k8s-metrics-server/serving-certs/tls.key'
+        - '--secure-port=6443'
+        - '--logtostderr=true'
+        - '--v=0'
+        env:
+        - name: WATCH_NAMESPACE
+          value: ""
+        ports:
+        - containerPort: 6443
+          name: https
+          protocol: TCP
+        - containerPort: 9022
+          name: metrics
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 6443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 6443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 1000m
+            memory: 1000Mi
+        volumeMounts:
+        - name: certs
+          mountPath: /tmp/k8s-metrics-server/serving-certs
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: certs
+        secret:
+          defaultMode: 420
+          secretName: keda-metrics-apiserver-certs
+      - name: tmp
+        emptyDir: {}
+      # Anti-affinity para HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: keda-metrics-apiserver
+              topologyKey: kubernetes.io/hostname
+
+---
+# ============================================================================
+# KEDA ADMISSION WEBHOOKS DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keda-admission-webhooks
+  namespace: keda-system
+  labels:
+    app: keda-admission-webhooks
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/version: "2.12.0"
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keda-admission-webhooks
+  template:
+    metadata:
+      labels:
+        app: keda-admission-webhooks
+        app.kubernetes.io/name: keda-admission-webhooks
+        app.kubernetes.io/version: "2.12.0"
+        app.kubernetes.io/component: admission-webhooks
+        app.kubernetes.io/part-of: keda
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      serviceAccountName: keda-admission-webhooks
+      containers:
+      - name: keda-admission-webhooks
+        image: ghcr.io/kedacore/keda-admission-webhooks:2.12.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        args:
+        - '--zap-log-level=info'
+        - '--zap-encoder=console'
+        - '--zap-time-encoding=rfc3339'
+        - '--cert-dir=/tmp/k8s-webhook-server/serving-certs'
+        - '--health-probe-bind-address=:8081'
+        - '--metrics-bind-address=:8080'
+        - '--port=9443'
+        env:
+        - name: WATCH_NAMESPACE
+          value: ""
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: healthz
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 8081
+          initialDelaySeconds: 25
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 1000m
+            memory: 1000Mi
+        volumeMounts:
+        - name: certs
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: certs
+        secret:
+          defaultMode: 420
+          secretName: keda-admission-webhooks-certs
+      - name: tmp
+        emptyDir: {}
+
+---
+# ============================================================================
+# SERVICE ACCOUNTS PARA KEDA
+# ============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keda-operator
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keda-metrics-apiserver
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keda-admission-webhooks
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+
+---
+# ============================================================================
+# CLUSTER ROLES PARA KEDA
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keda-operator
+  labels:
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+rules:
+- apiGroups: [""]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["autoscaling"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["keda.sh"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["*"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keda-metrics-apiserver
+  labels:
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "nodes/proxy"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["keda.sh"]
+  resources: ["scaledobjects", "scaledjobs", "triggerauthentications", "clustertriggerauthentications"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keda-admission-webhooks
+  labels:
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+rules:
+- apiGroups: ["keda.sh"]
+  resources: ["scaledobjects", "scaledjobs", "triggerauthentications", "clustertriggerauthentications"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ============================================================================
+# CLUSTER ROLE BINDINGS PARA KEDA
+# ============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keda-operator
+  labels:
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keda-operator
+subjects:
+- kind: ServiceAccount
+  name: keda-operator
+  namespace: keda-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keda-metrics-apiserver
+  labels:
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keda-metrics-apiserver
+subjects:
+- kind: ServiceAccount
+  name: keda-metrics-apiserver
+  namespace: keda-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keda-admission-webhooks
+  labels:
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keda-admission-webhooks
+subjects:
+- kind: ServiceAccount
+  name: keda-admission-webhooks
+  namespace: keda-system
+
+---
+# ============================================================================
+# SERVICES PARA KEDA
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: keda-operator
+  namespace: keda-system
+  labels:
+    app: keda-operator
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+spec:
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+  - name: webhook
+    port: 9443
+    targetPort: 9443
+  selector:
+    app: keda-operator
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keda-metrics-apiserver
+  namespace: keda-system
+  labels:
+    app: keda-metrics-apiserver
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+spec:
+  ports:
+  - name: https
+    port: 443
+    targetPort: 6443
+  - name: metrics
+    port: 9022
+    targetPort: 9022
+  selector:
+    app: keda-metrics-apiserver
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keda-admission-webhooks
+  namespace: keda-system
+  labels:
+    app: keda-admission-webhooks
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+spec:
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+  - name: webhook
+    port: 9443
+    targetPort: 9443
+  selector:
+    app: keda-admission-webhooks
+
+---
+# ============================================================================
+# API SERVICE PARA METRICS SERVER
+# ============================================================================
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+  labels:
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+spec:
+  service:
+    name: keda-metrics-apiserver
+    namespace: keda-system
+  group: external.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
+
+---
+# ============================================================================
+# VALIDATING WEBHOOK CONFIGURATION
+# ============================================================================
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionWebhook
+metadata:
+  name: keda-admission
+  labels:
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+webhooks:
+- name: vscaledobject.kb.io
+  clientConfig:
+    service:
+      name: keda-admission-webhooks
+      namespace: keda-system
+      path: "/validate-keda-sh-v1alpha1-scaledobject"
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: ["keda.sh"]
+    apiVersions: ["v1alpha1"]
+    resources: ["scaledobjects"]
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
+  failurePolicy: Fail
+  namespaceSelector: {}
+
+---
+# ============================================================================
+# CRDS PARA KEDA (ScaledObject)
+# ============================================================================
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scaledobjects.keda.sh
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/part-of: keda
+spec:
+  group: keda.sh
+  scope: Namespaced
+  names:
+    plural: scaledobjects
+    singular: scaledobject
+    kind: ScaledObject
+    shortNames:
+    - so
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              scaleTargetRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  kind:
+                    type: string
+                  apiVersion:
+                    type: string
+              triggers:
+                type: array
+                items:
+                  type: object
+              minReplicaCount:
+                type: integer
+              maxReplicaCount:
+                type: integer
+              cooldownPeriod:
+                type: integer
+          status:
+            type: object
+    additionalPrinterColumns:
+    - name: ScaleTargetRef
+      type: string
+      jsonPath: .spec.scaleTargetRef.name
+    - name: Min
+      type: integer
+      jsonPath: .spec.minReplicaCount
+    - name: Max
+      type: integer
+      jsonPath: .spec.maxReplicaCount
+    - name: Triggers
+      type: string
+      jsonPath: .spec.triggers[*].type
+    - name: Authentication
+      type: string
+      jsonPath: .spec.triggers[*].authenticationRef.name
+    - name: Ready
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Ready")].status
+    - name: Active
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Active")].status
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+
+---
+# ============================================================================
+# SECRET CERTIFICATES PLACEHOLDER (generados automáticamente)
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-operator-certs
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: keda
+type: kubernetes.io/tls
+data:
+  # Estos certificados serán generados automáticamente por KEDA
+  tls.crt: ""
+  tls.key: ""
+  ca.crt: ""
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-metrics-apiserver-certs
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-metrics-apiserver
+    app.kubernetes.io/component: metrics-apiserver
+    app.kubernetes.io/part-of: keda
+type: kubernetes.io/tls
+data:
+  # Estos certificados serán generados automáticamente por KEDA
+  tls.crt: ""
+  tls.key: ""
+  ca.crt: ""
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-admission-webhooks-certs
+  namespace: keda-system
+  labels:
+    app.kubernetes.io/name: keda-admission-webhooks
+    app.kubernetes.io/component: admission-webhooks
+    app.kubernetes.io/part-of: keda
+type: kubernetes.io/tls
+data:
+  # Estos certificados serán generados automáticamente por KEDA
+  tls.crt: ""
+  tls.key: ""
+  ca.crt: ""

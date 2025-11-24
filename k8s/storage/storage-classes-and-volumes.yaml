@@ -1,0 +1,482 @@
+# ============================================================================
+# STORAGE CLASSES OPTIMIZADAS PARA DIFERENTES WORKLOADS
+# ============================================================================
+
+# StorageClass para bases de datos - SSD de alto rendimiento
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+  labels:
+    app: ecommerce
+    component: storage
+    performance-tier: high
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+    description: "High-performance SSD storage for databases and critical workloads"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+  kmsKeyId: "arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012"
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+mountOptions:
+- debug
+- noatime
+---
+# StorageClass para aplicaciones generales - SSD balanceado
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: general-ssd
+  labels:
+    app: ecommerce
+    component: storage
+    performance-tier: medium
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    description: "Balanced SSD storage for general application workloads"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "1000"
+  throughput: "125"
+  encrypted: "true"
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+mountOptions:
+- noatime
+---
+# StorageClass para logs y archivos temporales - Optimizado para throughput
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: bulk-storage
+  labels:
+    app: ecommerce
+    component: storage
+    performance-tier: low
+  annotations:
+    description: "Cost-effective storage for logs, temporary files, and bulk data"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: st1
+  encrypted: "true"
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# StorageClass para backups - Almacenamiento de archivo
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: backup-storage
+  labels:
+    app: ecommerce
+    component: storage
+    performance-tier: archive
+  annotations:
+    description: "Archive storage for long-term backups and compliance"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: sc1
+  encrypted: "true"
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+---
+# StorageClass para desarrollo - Efímero y rápido
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: dev-fast
+  labels:
+    app: ecommerce
+    component: storage
+    performance-tier: development
+  annotations:
+    description: "Fast ephemeral storage for development and testing"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "500"
+  encrypted: "false"
+  fsType: ext4
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+
+---
+# ============================================================================
+# PERSISTENT VOLUME CLAIMS PARA MICROSERVICIOS
+# ============================================================================
+
+# PVC para MySQL Master - Base de datos principal
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-master-data
+  namespace: ecommerce-production
+  labels:
+    app: mysql
+    component: database
+    tier: master
+  annotations:
+    volume.beta.kubernetes.io/storage-class: fast-ssd
+    backup.velero.io/backup-volumes: mysql-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+  selector:
+    matchLabels:
+      app: mysql
+      tier: master
+---
+# PVC para MySQL Replica - Base de datos replica
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-replica-data
+  namespace: ecommerce-production
+  labels:
+    app: mysql
+    component: database
+    tier: replica
+  annotations:
+    volume.beta.kubernetes.io/storage-class: fast-ssd
+    backup.velero.io/backup-volumes: mysql-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+  selector:
+    matchLabels:
+      app: mysql
+      tier: replica
+---
+# PVC para Redis Master - Cache principal
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-master-data
+  namespace: ecommerce-production
+  labels:
+    app: redis
+    component: cache
+    tier: master
+  annotations:
+    volume.beta.kubernetes.io/storage-class: fast-ssd
+    backup.velero.io/backup-volumes: redis-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC para Redis Replica - Cache replica
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-replica-data
+  namespace: ecommerce-production
+  labels:
+    app: redis
+    component: cache
+    tier: replica
+  annotations:
+    volume.beta.kubernetes.io/storage-class: general-ssd
+    backup.velero.io/backup-volumes: redis-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: general-ssd
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC para Elasticsearch - Búsqueda y análisis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-data
+  namespace: ecommerce-production
+  labels:
+    app: elasticsearch
+    component: search
+  annotations:
+    volume.beta.kubernetes.io/storage-class: fast-ssd
+    backup.velero.io/backup-volumes: elasticsearch-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 30Gi
+---
+# PVC para logs de aplicación
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-logs-storage
+  namespace: ecommerce-production
+  labels:
+    app: ecommerce
+    component: logging
+  annotations:
+    volume.beta.kubernetes.io/storage-class: bulk-storage
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: bulk-storage
+  resources:
+    requests:
+      storage: 100Gi
+---
+# PVC para archivos temporales compartidos
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-temp-storage
+  namespace: ecommerce-production
+  labels:
+    app: ecommerce
+    component: temporary
+  annotations:
+    volume.beta.kubernetes.io/storage-class: general-ssd
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: general-ssd
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# ============================================================================
+# VOLUME SNAPSHOTS PARA BACKUP POINT-IN-TIME
+# ============================================================================
+
+# VolumeSnapshotClass para backups automáticos
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ecommerce-snapshot-class
+  labels:
+    app: ecommerce
+    component: snapshots
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: ebs.csi.aws.com
+deletionPolicy: Retain
+parameters:
+  encrypted: "true"
+  kmsKeyId: "arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012"
+---
+# VolumeSnapshot para MySQL Master
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: mysql-master-snapshot
+  namespace: ecommerce-production
+  labels:
+    app: mysql
+    component: database
+    snapshot-type: manual
+  annotations:
+    description: "Manual snapshot of MySQL master before major deployment"
+spec:
+  volumeSnapshotClassName: ecommerce-snapshot-class
+  source:
+    persistentVolumeClaimName: mysql-master-data
+---
+# VolumeSnapshot para Redis Master
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: redis-master-snapshot
+  namespace: ecommerce-production
+  labels:
+    app: redis
+    component: cache
+    snapshot-type: manual
+  annotations:
+    description: "Manual snapshot of Redis master for backup"
+spec:
+  volumeSnapshotClassName: ecommerce-snapshot-class
+  source:
+    persistentVolumeClaimName: redis-master-data
+
+---
+# ============================================================================
+# VOLUME RESIZE JOB - EXPANSIÓN AUTOMÁTICA DE VOLÚMENES
+# ============================================================================
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: volume-resize-monitor
+  namespace: ecommerce-production
+  labels:
+    app: ecommerce
+    component: storage-management
+spec:
+  schedule: "0 3 * * *"  # Diariamente a las 3 AM
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: volume-resize-monitor
+            component: storage-management
+        spec:
+          serviceAccountName: volume-resize-sa
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 2000
+          containers:
+          - name: resize-monitor
+            image: bitnami/kubectl:1.28
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            command:
+            - /bin/bash
+            - -c
+            - |
+              echo "🔍 Monitoring PVC usage for auto-resize..."
+              
+              # Función para verificar el uso de storage
+              check_pvc_usage() {
+                local pvc_name=$1
+                local namespace=$2
+                local threshold=85  # 85% threshold
+                
+                echo "Checking PVC: $pvc_name in namespace: $namespace"
+                
+                # Get pod using this PVC
+                pod=$(kubectl get pods -n $namespace -o json | jq -r '.items[] | select(.spec.volumes[]?.persistentVolumeClaim.claimName == "'$pvc_name'") | .metadata.name' | head -1)
+                
+                if [ -n "$pod" ]; then
+                  # Check disk usage
+                  usage=$(kubectl exec -n $namespace $pod -- df -h /data | awk 'NR==2 {print $5}' | sed 's/%//')
+                  
+                  if [ "$usage" -gt "$threshold" ]; then
+                    echo "⚠️  PVC $pvc_name is $usage% full (threshold: $threshold%)"
+                    
+                    # Get current size
+                    current_size=$(kubectl get pvc $pvc_name -n $namespace -o jsonpath='{.spec.resources.requests.storage}')
+                    
+                    # Calculate new size (increase by 50%)
+                    current_gb=$(echo $current_size | sed 's/Gi//')
+                    new_gb=$((current_gb + current_gb / 2))
+                    new_size="${new_gb}Gi"
+                    
+                    echo "🔧 Resizing PVC $pvc_name from $current_size to $new_size"
+                    
+                    # Patch PVC to increase size
+                    kubectl patch pvc $pvc_name -n $namespace -p '{"spec":{"resources":{"requests":{"storage":"'$new_size'"}}}}'
+                    
+                    if [ $? -eq 0 ]; then
+                      echo "✅ Successfully resized PVC $pvc_name to $new_size"
+                    else
+                      echo "❌ Failed to resize PVC $pvc_name"
+                    fi
+                  else
+                    echo "✅ PVC $pvc_name usage is $usage% (healthy)"
+                  fi
+                else
+                  echo "ℹ️  No pod found using PVC $pvc_name"
+                fi
+              }
+              
+              # Check all critical PVCs
+              check_pvc_usage "mysql-master-data" "ecommerce-production"
+              check_pvc_usage "mysql-replica-data" "ecommerce-production"
+              check_pvc_usage "redis-master-data" "ecommerce-production"
+              check_pvc_usage "elasticsearch-data" "ecommerce-production"
+              check_pvc_usage "app-logs-storage" "ecommerce-production"
+              
+              echo "📊 Volume resize monitoring completed"
+            resources:
+              requests:
+                memory: "64Mi"
+                cpu: "50m"
+              limits:
+                memory: "128Mi"
+                cpu: "100m"
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          volumes:
+          - name: tmp
+            emptyDir: {}
+          restartPolicy: OnFailure
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+---
+# ServiceAccount para volume resize
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volume-resize-sa
+  namespace: ecommerce-production
+  labels:
+    app: volume-resize-monitor
+    component: storage-management
+---
+# ClusterRole para volume resize
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volume-resize-role
+  labels:
+    app: volume-resize-monitor
+    component: storage-management
+rules:
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims", "pods"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+---
+# ClusterRoleBinding para volume resize
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: volume-resize-binding
+  labels:
+    app: volume-resize-monitor
+    component: storage-management
+subjects:
+- kind: ServiceAccount
+  name: volume-resize-sa
+  namespace: ecommerce-production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: volume-resize-role

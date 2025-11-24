@@ -1,0 +1,575 @@
+# ============================================================================
+# GRAFANA DEPLOYMENT CON DASHBOARDS PERSONALIZADOS
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: visualization
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+        component: visualization
+      annotations:
+        checksum/config: "{{ include (print $.Template.BasePath \"/grafana-config.yaml\") . | sha256sum }}"
+    spec:
+      serviceAccountName: grafana
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+      initContainers:
+      # Init container para configurar permisos
+      - name: init-grafana
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "🔧 Initializing Grafana..."
+          mkdir -p /var/lib/grafana/dashboards
+          mkdir -p /var/lib/grafana/plugins
+          chown -R 472:472 /var/lib/grafana
+          chmod -R 755 /var/lib/grafana
+          echo "✅ Grafana initialization completed"
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: grafana
+          containerPort: 3000
+          protocol: TCP
+        env:
+        # Configuración básica
+        - name: GF_SECURITY_ADMIN_USER
+          valueFrom:
+            secretRef:
+              name: grafana-credentials
+              key: admin-user
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretRef:
+              name: grafana-credentials
+              key: admin-password
+        
+        # Configuración de base de datos
+        - name: GF_DATABASE_TYPE
+          value: "postgres"
+        - name: GF_DATABASE_HOST
+          value: "postgres:5432"
+        - name: GF_DATABASE_NAME
+          value: "grafana"
+        - name: GF_DATABASE_USER
+          value: "grafana"
+        - name: GF_DATABASE_PASSWORD
+          valueFrom:
+            secretRef:
+              name: grafana-db-credentials
+              key: password
+        - name: GF_DATABASE_SSL_MODE
+          value: "require"
+        
+        # Configuración de servidor
+        - name: GF_SERVER_ROOT_URL
+          value: "https://monitoring.ecommerce.example.com/grafana/"
+        - name: GF_SERVER_SERVE_FROM_SUB_PATH
+          value: "true"
+        - name: GF_SERVER_DOMAIN
+          value: "monitoring.ecommerce.example.com"
+        
+        # Configuración de autenticación
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_AUTH_BASIC_ENABLED
+          value: "true"
+        - name: GF_AUTH_DISABLE_LOGIN_FORM
+          value: "false"
+        
+        # Configuración LDAP/OAuth (opcional)
+        - name: GF_AUTH_OAUTH_AUTO_LOGIN
+          value: "false"
+        - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+          value: "true"
+        - name: GF_AUTH_GENERIC_OAUTH_NAME
+          value: "OAuth"
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+          value: "grafana-oauth-client"
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretRef:
+              name: grafana-oauth
+              key: client-secret
+        
+        # Configuración de plugins
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel,grafana-worldmap-panel,redis-datasource,mysql-datasource"
+        
+        # Configuración de provisioning
+        - name: GF_PATHS_PROVISIONING
+          value: "/etc/grafana/provisioning"
+        
+        # Configuración de alerting
+        - name: GF_ALERTING_ENABLED
+          value: "true"
+        - name: GF_UNIFIED_ALERTING_ENABLED
+          value: "true"
+        
+        # Configuración de seguridad
+        - name: GF_SECURITY_COOKIE_SECURE
+          value: "true"
+        - name: GF_SECURITY_COOKIE_SAMESITE
+          value: "strict"
+        - name: GF_SECURITY_CONTENT_TYPE_PROTECTION
+          value: "true"
+        - name: GF_SECURITY_STRICT_TRANSPORT_SECURITY
+          value: "true"
+        
+        # Configuración de logging
+        - name: GF_LOG_LEVEL
+          value: "info"
+        - name: GF_LOG_MODE
+          value: "console file"
+        
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-config
+          mountPath: /etc/grafana/grafana.ini
+          subPath: grafana.ini
+        - name: grafana-provisioning-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-provisioning-dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: grafana-plugins
+          mountPath: /var/lib/grafana/plugins
+        - name: tmp
+          mountPath: /tmp
+      
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+      - name: grafana-config
+        configMap:
+          name: grafana-config
+      - name: grafana-provisioning-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-provisioning-dashboards
+        configMap:
+          name: grafana-dashboard-providers
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+      - name: grafana-plugins
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      
+      # Configuración de alta disponibilidad
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: grafana
+              topologyKey: kubernetes.io/hostname
+      
+      tolerations:
+      - key: node.kubernetes.io/memory-pressure
+        operator: Exists
+        effect: NoSchedule
+
+---
+# PVC para Grafana
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: storage
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: general-ssd
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# ConfigMap para configuración de Grafana
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: config
+data:
+  grafana.ini: |
+    # Configuración principal de Grafana
+    
+    [server]
+    protocol = http
+    http_port = 3000
+    domain = monitoring.ecommerce.example.com
+    root_url = https://monitoring.ecommerce.example.com/grafana/
+    serve_from_sub_path = true
+    enable_gzip = true
+    
+    [database]
+    type = postgres
+    host = postgres:5432
+    name = grafana
+    user = grafana
+    ssl_mode = require
+    max_idle_conn = 25
+    max_open_conn = 300
+    conn_max_lifetime = 14400
+    
+    [auth]
+    login_remember_days = 7
+    login_maximum_inactive_lifetime_days = 30
+    login_maximum_lifetime_days = 90
+    
+    [auth.anonymous]
+    enabled = false
+    
+    [auth.basic]
+    enabled = true
+    
+    [auth.generic_oauth]
+    enabled = true
+    name = OAuth
+    allow_sign_up = true
+    auto_login = false
+    scopes = openid profile email
+    auth_url = https://auth.ecommerce.com/auth
+    token_url = https://auth.ecommerce.com/token
+    api_url = https://auth.ecommerce.com/userinfo
+    
+    [security]
+    admin_user = admin
+    cookie_secure = true
+    cookie_samesite = strict
+    content_type_protection = true
+    strict_transport_security = true
+    strict_transport_security_max_age_seconds = 31536000
+    strict_transport_security_preload = true
+    strict_transport_security_subdomains = true
+    x_content_type_options = true
+    x_xss_protection = true
+    
+    [snapshots]
+    external_enabled = false
+    
+    [dashboards]
+    default_home_dashboard_path = /var/lib/grafana/dashboards/ecommerce-overview.json
+    
+    [alerting]
+    enabled = true
+    execute_alerts = true
+    
+    [unified_alerting]
+    enabled = true
+    
+    [log]
+    mode = console file
+    level = info
+    
+    [log.console]
+    level = info
+    format = console
+    
+    [log.file]
+    level = info
+    format = text
+    log_rotate = true
+    max_lines = 1000000
+    max_size_shift = 28
+    daily_rotate = true
+    max_days = 7
+    
+    [metrics]
+    enabled = true
+    interval_seconds = 10
+    
+    [tracing.jaeger]
+    address = jaeger-collector:14268
+    always_included_tag = tag1:value1
+    sampler_type = const
+    sampler_param = 1
+    sampling_server_url = http://jaeger-agent:5778/sampling
+
+---
+# ConfigMap para datasources
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: datasources
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus-ecommerce:9090
+      isDefault: true
+      jsonData:
+        timeInterval: "15s"
+        queryTimeout: "60s"
+        httpMethod: "POST"
+        manageAlerts: false
+        prometheusType: "Prometheus"
+        prometheusVersion: "2.47.2"
+        cacheLevel: "High"
+        disableRecordingRules: false
+        incrementalQuerying: true
+        exemplarTraceIdDestinations:
+        - datasourceUid: "jaeger-uid"
+          name: "trace_id"
+      secureJsonFields:
+        httpHeaderValue1: true
+      version: 1
+      editable: true
+    
+    - name: Alertmanager
+      type: alertmanager
+      access: proxy
+      url: http://alertmanager-ecommerce:9093
+      jsonData:
+        implementation: "prometheus"
+        handleGrafanaManagedAlerts: false
+      version: 1
+      editable: true
+    
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger-query:16686
+      uid: jaeger-uid
+      jsonData:
+        tracesToMetrics:
+          datasourceUid: "prometheus-uid"
+          spanStartTimeShift: "1h"
+          spanEndTimeShift: "1h"
+          tags:
+          - key: "service.name"
+            value: "service"
+          - key: "job"
+            value: "job"
+          queries:
+          - name: "Sample query"
+            query: "sum(rate(traces_spanmetrics_latency_bucket{$__tags}[5m]))"
+        nodeGraph:
+          enabled: true
+      version: 1
+      editable: true
+    
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      jsonData:
+        maxLines: 1000
+        timeout: "60"
+        derivedFields:
+        - datasourceUid: "jaeger-uid"
+          matcherRegex: "trace_id=(\\w+)"
+          name: "trace_id"
+          url: "$${__value.raw}"
+      version: 1
+      editable: true
+
+---
+# ConfigMap para dashboard providers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-providers
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard-providers
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'ecommerce-dashboards'
+      type: file
+      updateIntervalSeconds: 30
+      options:
+        path: /var/lib/grafana/dashboards
+        foldersFromFilesStructure: true
+    
+    - name: 'kubernetes-dashboards'
+      type: file
+      updateIntervalSeconds: 30
+      options:
+        path: /var/lib/grafana/dashboards/kubernetes
+        foldersFromFilesStructure: true
+
+---
+# ServiceAccount para Grafana
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: service-account
+---
+# ClusterRole para Grafana
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+    component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions", "networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding para Grafana
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+    component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grafana
+subjects:
+- kind: ServiceAccount
+  name: grafana
+  namespace: monitoring
+---
+# Service para Grafana
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: grafana
+  selector:
+    app: grafana
+---
+# Secrets para Grafana
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-credentials
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: credentials
+type: Opaque
+data:
+  admin-user: YWRtaW4=  # admin
+  admin-password: c2VjdXJlLWdyYWZhbmEtcGFzc3dvcmQ=  # secure-grafana-password
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-db-credentials
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: credentials
+type: Opaque
+data:
+  password: Z3JhZmFuYS1kYi1wYXNzd29yZA==  # grafana-db-password
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-oauth
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: credentials
+type: Opaque
+data:
+  client-secret: b2F1dGgtY2xpZW50LXNlY3JldA==  # oauth-client-secret

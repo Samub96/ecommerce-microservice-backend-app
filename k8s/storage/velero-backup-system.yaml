@@ -1,0 +1,360 @@
+# ============================================================================
+# VELERO - BACKUP Y RESTORE AUTOMATIZADO PARA KUBERNETES
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero-system
+  labels:
+    app: velero
+    component: backup-system
+---
+# ServiceAccount para Velero
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: velero
+  namespace: velero-system
+  labels:
+    app: velero
+    component: backup-system
+---
+# ClusterRole para Velero con permisos completos de backup
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: velero
+  labels:
+    app: velero
+    component: backup-system
+rules:
+# Permisos para backup de todos los recursos
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+# Permisos específicos para Custom Resources
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["*"]
+# Permisos para eventos y logs
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+# ClusterRoleBinding para Velero
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: velero
+  labels:
+    app: velero
+    component: backup-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: velero
+subjects:
+- kind: ServiceAccount
+  name: velero
+  namespace: velero-system
+---
+# Deployment de Velero Server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: velero
+  namespace: velero-system
+  labels:
+    app: velero
+    component: backup-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: velero
+      component: backup-system
+  template:
+    metadata:
+      labels:
+        app: velero
+        component: backup-system
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8085"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: velero
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: velero
+        image: velero/velero:v1.12.1
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        command:
+        - /velero
+        args:
+        - server
+        - --uploader-type=kopia
+        - --default-volumes-to-fs-backup
+        - --log-level=info
+        - --metrics-address=0.0.0.0:8085
+        - --profiler-address=0.0.0.0:6060
+        - --restore-resource-priorities=customresourcedefinitions,namespaces,storageclasses,volumesnapshotclass.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io,volumesnapshots.snapshot.storage.k8s.io,persistentvolumes,persistentvolumeclaims,secrets,configmaps,serviceaccounts,limitranges,pods,replicasets,clusterroles,clusterrolebindings,roles,rolebindings,services,daemonsets,deployments,replicationcontrollers,statefulsets,cronjobs,jobs,ingresses
+        env:
+        - name: VELERO_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: VELERO_SCRATCH_DIR
+          value: /scratch
+        - name: AWS_SHARED_CREDENTIALS_FILE
+          value: /credentials/cloud
+        - name: AWS_CONFIG_FILE
+          value: /config/cloud
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /credentials/cloud
+        - name: AZURE_CREDENTIALS_FILE
+          value: /credentials/cloud
+        - name: ALIBABA_CLOUD_CREDENTIALS_FILE
+          value: /credentials/cloud
+        ports:
+        - name: http-monitoring
+          containerPort: 8085
+          protocol: TCP
+        - name: profiler
+          containerPort: 6060
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8085
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8085
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        volumeMounts:
+        - name: cloud-credentials
+          mountPath: /credentials
+          readOnly: true
+        - name: plugins
+          mountPath: /plugins
+          readOnly: true
+        - name: scratch
+          mountPath: /scratch
+        - name: certs
+          mountPath: /etc/ssl/certs
+          readOnly: true
+      volumes:
+      - name: cloud-credentials
+        secret:
+          secretName: cloud-credentials
+          optional: true
+      - name: plugins
+        emptyDir: {}
+      - name: scratch
+        emptyDir: {}
+      - name: certs
+        secret:
+          secretName: velero-certs
+          optional: true
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+# Configuración de BackupStorageLocation para S3 compatible
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: default
+  namespace: velero-system
+  labels:
+    app: velero
+    component: backup-storage
+spec:
+  provider: aws
+  objectStorage:
+    bucket: ecommerce-backups
+    prefix: "kubernetes-backups"
+  config:
+    region: us-west-2
+    s3ForcePathStyle: "false"
+    s3Url: "https://s3.us-west-2.amazonaws.com"
+    publicUrl: ""
+    kmsKeyId: ""
+    serverSideEncryption: "AES256"
+    insecureSkipTLSVerify: "false"
+---
+# Configuración de VolumeSnapshotLocation
+apiVersion: velero.io/v1
+kind: VolumeSnapshotLocation
+metadata:
+  name: default
+  namespace: velero-system
+  labels:
+    app: velero
+    component: volume-snapshots
+spec:
+  provider: aws
+  config:
+    region: us-west-2
+    enableSharedConfig: "true"
+---
+# ConfigMap con configuración de Velero
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-config
+  namespace: velero-system
+  labels:
+    app: velero
+    component: config
+data:
+  # Configuración de logging
+  log_level: "info"
+  log_format: "json"
+  
+  # Configuración de métricas
+  metrics_address: "0.0.0.0:8085"
+  profiler_address: "0.0.0.0:6060"
+  
+  # Configuración de backup
+  default_backup_ttl: "720h"  # 30 días
+  default_backup_storage_location: "default"
+  default_volume_snapshot_location: "default"
+  
+  # Configuración de restore
+  restore_only_mode: "false"
+  disable_controllers: ""
+  
+  # Configuración de plugin
+  uploader_type: "kopia"
+  
+  # Features flags
+  enable_csi_feature_flag: "true"
+  enable_api_group_versions_feature_flag: "true"
+---
+# Service para métricas de Velero
+apiVersion: v1
+kind: Service
+metadata:
+  name: velero-metrics
+  namespace: velero-system
+  labels:
+    app: velero
+    component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8085"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http-monitoring
+    port: 8085
+    targetPort: 8085
+    protocol: TCP
+  selector:
+    app: velero
+    component: backup-system
+---
+# ServiceMonitor para Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: velero
+  namespace: velero-system
+  labels:
+    app: velero
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: velero
+      component: metrics
+  endpoints:
+  - port: http-monitoring
+    interval: 30s
+    path: /metrics
+    scheme: http
+---
+# NetworkPolicy para Velero
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: velero-netpol
+  namespace: velero-system
+  labels:
+    app: velero
+    component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: velero
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir métricas desde Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8085
+  # Permitir profiling interno
+  - from:
+    - podSelector:
+        matchLabels:
+          app: velero
+    ports:
+    - protocol: TCP
+      port: 6060
+  egress:
+  # Permitir DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Permitir acceso a Kubernetes API
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443
+  # Permitir acceso a storage provider (S3, etc.)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443

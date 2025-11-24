@@ -1,0 +1,570 @@
+# ============================================================================
+# DASHBOARDS PERSONALIZADOS PARA ECOMMERCE MICROSERVICES
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboards
+data:
+  # ===============================================================
+  # DASHBOARD PRINCIPAL - ECOMMERCE OVERVIEW
+  # ===============================================================
+  ecommerce-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Ecommerce Microservices - Overview",
+        "tags": ["ecommerce", "microservices", "overview"],
+        "timezone": "browser",
+        "editable": true,
+        "gnetId": null,
+        "graphTooltip": 1,
+        "hideControls": false,
+        "links": [],
+        "liveNow": false,
+        "panels": [
+          {
+            "id": 1,
+            "title": "System Health Overview",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "up",
+                "legendFormat": "{{instance}} - {{job}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "mappings": [
+                  {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+                  {"options": {"1": {"text": "UP"}}, "type": "value"}
+                ],
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Request Rate (RPS)",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total[5m])) by (service)",
+                "legendFormat": "{{service}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "Requests/sec", "show": true},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Response Time (95th percentile)",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le))",
+                "legendFormat": "{{service}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "Seconds", "show": true},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 4,
+            "title": "Error Rate (%)",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service) * 100",
+                "legendFormat": "{{service}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "show": true, "max": 100, "min": 0},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 5,
+            "title": "Resource Usage",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{container!=\"POD\",container!=\"\"}[5m]) * 100",
+                "legendFormat": "CPU - {{pod}}",
+                "refId": "A"
+              },
+              {
+                "expr": "container_memory_usage_bytes{container!=\"POD\",container!=\"\"} / container_spec_memory_limit_bytes * 100",
+                "legendFormat": "Memory - {{pod}}",
+                "refId": "B"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "show": true, "max": 100, "min": 0},
+              {"show": false}
+            ]
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "timepicker": {"refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]},
+        "refresh": "30s",
+        "version": 1
+      }
+    }
+
+  # ===============================================================
+  # DASHBOARD DE NEGOCIO - BUSINESS METRICS
+  # ===============================================================
+  business-metrics.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Business Metrics - Ecommerce KPIs",
+        "tags": ["business", "kpi", "revenue"],
+        "timezone": "browser",
+        "editable": true,
+        "panels": [
+          {
+            "id": 1,
+            "title": "Orders per Minute",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(rate(orders_total[1m])) * 60",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short"
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Revenue per Hour ($)",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(rate(order_revenue_total[1h])) * 3600",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "currencyUSD"
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "Active Users",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+            "targets": [
+              {
+                "expr": "count(increase(user_sessions_total[5m]) > 0)",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "palette-classic"},
+                "unit": "short"
+              }
+            }
+          },
+          {
+            "id": 4,
+            "title": "Cart Abandonment Rate (%)",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+            "targets": [
+              {
+                "expr": "(sum(cart_created_total) - sum(orders_completed_total)) / sum(cart_created_total) * 100",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 50},
+                    {"color": "red", "value": 70}
+                  ]
+                },
+                "unit": "percent"
+              }
+            }
+          },
+          {
+            "id": 5,
+            "title": "Orders by Status",
+            "type": "piechart",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+            "targets": [
+              {
+                "expr": "sum by (status) (orders_by_status)",
+                "legendFormat": "{{status}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 6,
+            "title": "Top Products by Sales",
+            "type": "bargauge",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+            "targets": [
+              {
+                "expr": "topk(10, sum by (product_id, product_name) (product_sales_total))",
+                "legendFormat": "{{product_name}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 7,
+            "title": "Payment Methods Distribution",
+            "type": "piechart",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+            "targets": [
+              {
+                "expr": "sum by (payment_method) (payments_by_method)",
+                "legendFormat": "{{payment_method}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 8,
+            "title": "Customer Satisfaction Score",
+            "type": "gauge",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+            "targets": [
+              {
+                "expr": "avg(customer_satisfaction_score)",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "max": 5,
+                "min": 0,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": 2},
+                    {"color": "green", "value": 4}
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "time": {"from": "now-6h", "to": "now"},
+        "refresh": "1m",
+        "version": 1
+      }
+    }
+
+  # ===============================================================
+  # DASHBOARD DE KUBERNETES CLUSTER
+  # ===============================================================
+  kubernetes-cluster.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kubernetes Cluster Overview",
+        "tags": ["kubernetes", "cluster", "infrastructure"],
+        "timezone": "browser",
+        "editable": true,
+        "panels": [
+          {
+            "id": 1,
+            "title": "Cluster Status",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\"}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "mappings": [
+                  {"options": {"0": {"text": "NOT READY"}}, "type": "value"},
+                  {"options": {"1": {"text": "READY"}}, "type": "value"}
+                ],
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 1}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Total Pods",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(kube_pod_info)",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Running Pods",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(kube_pod_status_phase{phase=\"Running\"})",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 4,
+            "title": "Failed Pods",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(kube_pod_status_phase{phase=\"Failed\"})",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "red", "value": 1}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 5,
+            "title": "Node CPU Usage",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+            "targets": [
+              {
+                "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "legendFormat": "{{instance}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "CPU Usage %", "show": true, "max": 100, "min": 0},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 6,
+            "title": "Node Memory Usage",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+            "targets": [
+              {
+                "expr": "100 * (1 - ((node_memory_MemAvailable_bytes or node_memory_MemFree_bytes) / node_memory_MemTotal_bytes))",
+                "legendFormat": "{{instance}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "Memory Usage %", "show": true, "max": 100, "min": 0},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 7,
+            "title": "Pod Resources by Namespace",
+            "type": "table",
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+            "targets": [
+              {
+                "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\"})",
+                "legendFormat": "CPU Requests",
+                "refId": "A"
+              },
+              {
+                "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"memory\"})",
+                "legendFormat": "Memory Requests",
+                "refId": "B"
+              }
+            ]
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "30s",
+        "version": 1
+      }
+    }
+
+  # ===============================================================
+  # DASHBOARD DE MICROSERVICES DETALLADO
+  # ===============================================================
+  microservices-detailed.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Microservices - Detailed Metrics",
+        "tags": ["microservices", "detailed", "performance"],
+        "timezone": "browser",
+        "editable": true,
+        "panels": [
+          {
+            "id": 1,
+            "title": "Service Availability (SLA)",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "avg_over_time(up{job=~\".*-service\"}[24h]) * 100",
+                "legendFormat": "{{job}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": 99},
+                    {"color": "green", "value": 99.9}
+                  ]
+                },
+                "unit": "percent"
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Request Volume by Service",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total[5m])) by (service)",
+                "legendFormat": "{{service}}",
+                "refId": "A"
+              }
+            ],
+            "yAxes": [
+              {"label": "Requests/sec", "show": true},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Database Connections",
+            "type": "graph",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+            "targets": [
+              {
+                "expr": "sum(mysql_global_status_threads_connected) by (instance)",
+                "legendFormat": "MySQL - {{instance}}",
+                "refId": "A"
+              },
+              {
+                "expr": "sum(redis_connected_clients) by (instance)",
+                "legendFormat": "Redis - {{instance}}",
+                "refId": "B"
+              }
+            ],
+            "yAxes": [
+              {"label": "Connections", "show": true},
+              {"show": false}
+            ]
+          },
+          {
+            "id": 4,
+            "title": "API Endpoint Performance",
+            "type": "heatmap",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+            "targets": [
+              {
+                "expr": "sum(rate(http_request_duration_seconds_bucket[5m])) by (le, method, endpoint)",
+                "legendFormat": "{{method}} {{endpoint}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 5,
+            "title": "Circuit Breaker Status",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+            "targets": [
+              {
+                "expr": "hystrix_circuit_breaker_open",
+                "legendFormat": "{{service}} - {{method}}",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {"mode": "thresholds"},
+                "mappings": [
+                  {"options": {"0": {"text": "CLOSED"}}, "type": "value"},
+                  {"options": {"1": {"text": "OPEN"}}, "type": "value"}
+                ],
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "red", "value": 1}
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "15s",
+        "version": 1
+      }
+    }

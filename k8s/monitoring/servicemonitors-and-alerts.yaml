@@ -1,0 +1,656 @@
+# ============================================================================
+# SERVICE MONITORS PARA MICROSERVICIOS
+# ============================================================================
+
+# ServiceMonitor para API Gateway
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api-gateway-metrics
+  namespace: monitoring
+  labels:
+    app: api-gateway
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'http_requests_total|http_request_duration_seconds.*|jvm_.*|system_.*|tomcat_.*'
+      action: keep
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service_name
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: kubernetes_namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: kubernetes_pod_name
+
+---
+# ServiceMonitor para User Service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: user-service-metrics
+  namespace: monitoring
+  labels:
+    app: user-service
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: user-service
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'http_requests_total|http_request_duration_seconds.*|jvm_.*|hikaricp_.*|mysql_.*|cache_.*'
+      action: keep
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service_name
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: kubernetes_namespace
+
+---
+# ServiceMonitor para Product Service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: product-service-metrics
+  namespace: monitoring
+  labels:
+    app: product-service
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: product-service
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'http_requests_total|http_request_duration_seconds.*|jvm_.*|elasticsearch_.*|cache_.*|search_.*'
+      action: keep
+
+---
+# ServiceMonitor para Order Service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: order-service-metrics
+  namespace: monitoring
+  labels:
+    app: order-service
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: order-service
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'http_requests_total|http_request_duration_seconds.*|jvm_.*|order_.*|rabbitmq_.*|payment_.*'
+      action: keep
+
+---
+# ServiceMonitor para Payment Service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: payment-service-metrics
+  namespace: monitoring
+  labels:
+    app: payment-service
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: payment-service
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'http_requests_total|http_request_duration_seconds.*|jvm_.*|payment_.*|stripe_.*|paypal_.*'
+      action: keep
+
+---
+# ServiceMonitor para MySQL
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mysql-metrics
+  namespace: monitoring
+  labels:
+    app: mysql
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 15s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'mysql_.*'
+      action: keep
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_label_tier]
+      targetLabel: mysql_tier
+
+---
+# ServiceMonitor para Redis
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis-metrics
+  namespace: monitoring
+  labels:
+    app: redis
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  namespaceSelector:
+    matchNames:
+    - ecommerce-production
+    - ecommerce-staging
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 15s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'redis_.*'
+      action: keep
+
+---
+# ServiceMonitor para Nginx Ingress
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nginx-ingress-metrics
+  namespace: monitoring
+  labels:
+    app: nginx-ingress
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+  namespaceSelector:
+    matchNames:
+    - ingress-nginx
+  endpoints:
+  - port: prometheus
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'nginx_.*|ingress_.*'
+      action: keep
+
+---
+# ServiceMonitor para Velero
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: velero-metrics
+  namespace: monitoring
+  labels:
+    app: velero
+    team: ecommerce
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: velero
+  namespaceSelector:
+    matchNames:
+    - velero-system
+  endpoints:
+  - port: http-monitoring
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 15s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'velero_.*'
+      action: keep
+
+---
+# ============================================================================
+# PROMETHEUS RULES - ALERTAS PERSONALIZADAS
+# ============================================================================
+
+# Reglas de alertas para microservicios
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ecommerce-microservices-alerts
+  namespace: monitoring
+  labels:
+    team: ecommerce
+    role: alert-rules
+    component: microservices
+spec:
+  groups:
+  # Alertas de disponibilidad de servicios
+  - name: ecommerce.service.availability
+    interval: 30s
+    rules:
+    - alert: ServiceDown
+      expr: up{job=~".*-service"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        team: ecommerce
+        component: availability
+      annotations:
+        summary: "Service {{ $labels.job }} is down"
+        description: "{{ $labels.job }} has been down for more than 2 minutes in namespace {{ $labels.kubernetes_namespace }}"
+        runbook_url: "https://wiki.ecommerce.com/runbooks/service-down"
+    
+    - alert: ServiceHighErrorRate
+      expr: |
+        (
+          rate(http_requests_total{status=~"5.."}[5m]) /
+          rate(http_requests_total[5m])
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: reliability
+      annotations:
+        summary: "High error rate on {{ $labels.service_name }}"
+        description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.service_name }}"
+    
+    - alert: ServiceHighLatency
+      expr: |
+        histogram_quantile(0.95,
+          rate(http_request_duration_seconds_bucket[5m])
+        ) > 1.0
+      for: 10m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: performance
+      annotations:
+        summary: "High latency on {{ $labels.service_name }}"
+        description: "95th percentile latency is {{ $value }}s for {{ $labels.service_name }}"
+
+  # Alertas de recursos y performance
+  - name: ecommerce.resources
+    interval: 30s
+    rules:
+    - alert: HighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{container!=""} /
+          container_spec_memory_limit_bytes{container!=""} * 100
+        ) > 90
+      for: 5m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: resources
+      annotations:
+        summary: "High memory usage in container {{ $labels.container }}"
+        description: "Memory usage is {{ $value }}% in container {{ $labels.container }} of pod {{ $labels.pod }}"
+    
+    - alert: HighCPUUsage
+      expr: |
+        (
+          rate(container_cpu_usage_seconds_total{container!=""}[5m]) /
+          container_spec_cpu_quota{container!=""} * 100000
+        ) > 80
+      for: 10m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: resources
+      annotations:
+        summary: "High CPU usage in container {{ $labels.container }}"
+        description: "CPU usage is {{ $value }}% in container {{ $labels.container }} of pod {{ $labels.pod }}"
+
+  # Alertas de base de datos
+  - name: ecommerce.database
+    interval: 30s
+    rules:
+    - alert: MySQLDown
+      expr: mysql_up == 0
+      for: 2m
+      labels:
+        severity: critical
+        team: ecommerce
+        component: database
+      annotations:
+        summary: "MySQL instance is down"
+        description: "MySQL instance {{ $labels.instance }} has been down for more than 2 minutes"
+    
+    - alert: MySQLReplicationLag
+      expr: mysql_slave_lag_seconds > 30
+      for: 5m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: database
+      annotations:
+        summary: "MySQL replication lag is high"
+        description: "MySQL slave {{ $labels.instance }} is lagging by {{ $value }} seconds"
+    
+    - alert: MySQLConnectionsHigh
+      expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: database
+      annotations:
+        summary: "MySQL connections are high"
+        description: "MySQL connections are at {{ $value | humanizePercentage }} of maximum on {{ $labels.instance }}"
+
+  # Alertas de business metrics
+  - name: ecommerce.business
+    interval: 60s
+    rules:
+    - alert: OrderProcessingDelay
+      expr: |
+        (
+          time() - order_last_processed_timestamp
+        ) > 300
+      for: 5m
+      labels:
+        severity: warning
+        team: ecommerce
+        component: business
+      annotations:
+        summary: "Order processing is delayed"
+        description: "Last order was processed {{ $value }} seconds ago"
+    
+    - alert: PaymentFailureRateHigh
+      expr: |
+        (
+          rate(payment_failures_total[10m]) /
+          rate(payment_attempts_total[10m])
+        ) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+        team: ecommerce
+        component: business
+      annotations:
+        summary: "Payment failure rate is high"
+        description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+---
+# Reglas de grabación para métricas aggregadas
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ecommerce-recording-rules
+  namespace: monitoring
+  labels:
+    team: ecommerce
+    role: alert-rules
+    component: recording
+spec:
+  groups:
+  # Reglas de grabación para SLIs
+  - name: ecommerce.sli
+    interval: 30s
+    rules:
+    # Success rate por servicio
+    - record: ecommerce:service_success_rate
+      expr: |
+        (
+          rate(http_requests_total{status!~"5.."}[5m]) /
+          rate(http_requests_total[5m])
+        )
+    
+    # Latencia p99 por servicio
+    - record: ecommerce:service_latency_p99
+      expr: |
+        histogram_quantile(0.99,
+          rate(http_request_duration_seconds_bucket[5m])
+        )
+    
+    # Throughput por servicio
+    - record: ecommerce:service_throughput
+      expr: |
+        rate(http_requests_total[5m])
+
+  # Reglas para métricas de negocio
+  - name: ecommerce.business_metrics
+    interval: 60s
+    rules:
+    # Órdenes por minuto
+    - record: ecommerce:orders_per_minute
+      expr: |
+        rate(order_created_total[1m]) * 60
+    
+    # Revenue por hora
+    - record: ecommerce:revenue_per_hour
+      expr: |
+        rate(order_value_sum[1h]) * 3600
+    
+    # Usuarios activos
+    - record: ecommerce:active_users_5m
+      expr: |
+        count(count by (user_id) (user_activity_total[5m]))
+
+---
+# ============================================================================
+# CONFIGURACIÓN DE ALERTMANAGER
+# ============================================================================
+
+# Secret con configuración de Alertmanager
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-ecommerce-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+    component: config
+type: Opaque
+stringData:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'smtp.gmail.com:587'
+      smtp_from: 'alerts@ecommerce.com'
+      smtp_auth_username: 'alerts@ecommerce.com'
+      smtp_auth_password: 'app-specific-password'
+      slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    
+    # Templates para alertas
+    templates:
+    - '/etc/alertmanager/templates/*.tmpl'
+    
+    # Rutas de alertas
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'default'
+      routes:
+      # Alertas críticas van por múltiples canales
+      - match:
+          severity: critical
+        receiver: 'critical-alerts'
+        group_wait: 0s
+        repeat_interval: 5m
+      
+      # Alertas de base de datos
+      - match:
+          component: database
+        receiver: 'database-team'
+        group_interval: 5m
+      
+      # Alertas de negocio
+      - match:
+          component: business
+        receiver: 'business-team'
+        group_interval: 2m
+      
+      # Alertas durante horario de oficina
+      - match_re:
+          severity: warning
+        receiver: 'warning-business-hours'
+        active_time_intervals:
+        - business_hours
+    
+    # Configuración de receptores
+    receivers:
+    - name: 'default'
+      slack_configs:
+      - channel: '#ecommerce-alerts'
+        title: 'Ecommerce Alert'
+        text: |
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Severity:** {{ .Labels.severity }}
+          **Service:** {{ .Labels.service_name }}
+          {{ end }}
+    
+    - name: 'critical-alerts'
+      slack_configs:
+      - channel: '#ecommerce-critical'
+        title: '🚨 CRITICAL: Ecommerce Alert'
+        text: |
+          {{ range .Alerts }}
+          🚨 **CRITICAL ALERT** 🚨
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Service:** {{ .Labels.service_name }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          {{ end }}
+      email_configs:
+      - to: 'oncall@ecommerce.com'
+        subject: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.service_name }}
+          {{ end }}
+    
+    - name: 'database-team'
+      slack_configs:
+      - channel: '#database-alerts'
+        title: 'Database Alert'
+        text: |
+          {{ range .Alerts }}
+          **Database Alert:** {{ .Annotations.summary }}
+          **Instance:** {{ .Labels.instance }}
+          **Description:** {{ .Annotations.description }}
+          {{ end }}
+    
+    - name: 'business-team'
+      slack_configs:
+      - channel: '#business-alerts'
+        title: 'Business Metrics Alert'
+        text: |
+          {{ range .Alerts }}
+          📊 **Business Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Impact:** Revenue and customer experience
+          {{ end }}
+    
+    - name: 'warning-business-hours'
+      slack_configs:
+      - channel: '#ecommerce-alerts'
+        title: 'Warning (Business Hours)'
+        text: |
+          {{ range .Alerts }}
+          ⚠️ **Warning:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Service:** {{ .Labels.service_name }}
+          {{ end }}
+    
+    # Supresión de alertas
+    inhibit_rules:
+    - source_match:
+        severity: 'critical'
+      target_match:
+        severity: 'warning'
+      equal: ['alertname', 'cluster', 'service']
+    
+    # Intervalos de tiempo activos
+    time_intervals:
+    - name: business_hours
+      time_intervals:
+      - times:
+        - start_time: '09:00'
+          end_time: '18:00'
+        weekdays: ['monday:friday']
+        location: 'America/New_York'

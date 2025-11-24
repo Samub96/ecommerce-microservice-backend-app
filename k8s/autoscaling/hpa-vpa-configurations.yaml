@@ -1,0 +1,683 @@
+# ============================================================================
+# HORIZONTAL POD AUTOSCALER (HPA) Y VERTICAL POD AUTOSCALER (VPA) 
+# CONFIGURACIONES PARA MICROSERVICIOS ECOMMERCE
+# ============================================================================
+
+# ============================================================================
+# VERTICAL POD AUTOSCALER (VPA) - OPERATOR DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpa-recommender
+  namespace: kube-system
+  labels:
+    app: vpa-recommender
+    component: autoscaling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vpa-recommender
+  template:
+    metadata:
+      labels:
+        app: vpa-recommender
+        component: autoscaling
+    spec:
+      serviceAccountName: vpa-recommender
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+      - name: recommender
+        image: k8s.gcr.io/autoscaling/vpa-recommender:0.14.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --v=4
+        - --stderrthreshold=info
+        - --pod-recommendation-min-cpu-millicores=25
+        - --pod-recommendation-min-memory-mb=100
+        - --storage=prometheus
+        - --prometheus-address=http://prometheus-ecommerce.monitoring.svc.cluster.local:9090
+        - --history-length=8d
+        - --history-resolution=1h
+        resources:
+          requests:
+            cpu: 50m
+            memory: 500Mi
+          limits:
+            cpu: 200m
+            memory: 1000Mi
+        ports:
+        - containerPort: 8080
+          name: metrics
+        livenessProbe:
+          httpGet:
+            path: /health-check
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health-check
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpa-updater
+  namespace: kube-system
+  labels:
+    app: vpa-updater
+    component: autoscaling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vpa-updater
+  template:
+    metadata:
+      labels:
+        app: vpa-updater
+        component: autoscaling
+    spec:
+      serviceAccountName: vpa-updater
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+      - name: updater
+        image: k8s.gcr.io/autoscaling/vpa-updater:0.14.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --v=4
+        - --stderrthreshold=info
+        - --min-replicas=2
+        - --eviction-rate-limit=1
+        - --eviction-rate-burst=1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 500Mi
+          limits:
+            cpu: 200m
+            memory: 1000Mi
+        ports:
+        - containerPort: 8080
+          name: metrics
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpa-admission-controller
+  namespace: kube-system
+  labels:
+    app: vpa-admission-controller
+    component: autoscaling
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vpa-admission-controller
+  template:
+    metadata:
+      labels:
+        app: vpa-admission-controller
+        component: autoscaling
+    spec:
+      serviceAccountName: vpa-admission-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+      - name: admission-controller
+        image: k8s.gcr.io/autoscaling/vpa-admission-controller:0.14.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --v=4
+        - --stderrthreshold=info
+        - --client-ca-file=/etc/tls-certs/ca.crt
+        - --tls-cert-file=/etc/tls-certs/tls.crt
+        - --tls-private-key-file=/etc/tls-certs/tls.key
+        - --webhook-timeout=30s
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            cpu: 50m
+            memory: 200Mi
+          limits:
+            cpu: 200m
+            memory: 500Mi
+        ports:
+        - containerPort: 8000
+          name: webhook
+        - containerPort: 8080
+          name: metrics
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/tls-certs
+          readOnly: true
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: vpa-webhook-certs
+
+---
+# ============================================================================
+# HPA PARA USER-SERVICE
+# ============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-service-hpa
+  namespace: default
+  labels:
+    app: user-service
+    component: autoscaling
+    tier: hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-service
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  # CPU-based scaling
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metric: requests per second
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "100"
+  # External metric: queue depth
+  - type: External
+    external:
+      metric:
+        name: user_registration_queue_depth
+      target:
+        type: AverageValue
+        averageValue: "10"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 4
+        periodSeconds: 60
+      selectPolicy: Max
+
+---
+# ============================================================================
+# HPA PARA ORDER-SERVICE
+# ============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: order-service-hpa
+  namespace: default
+  labels:
+    app: order-service
+    component: autoscaling
+    tier: hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-service
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+  # CPU-based scaling con threshold más bajo para servicio crítico
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  # Custom metric: orders per minute
+  - type: Pods
+    pods:
+      metric:
+        name: orders_per_minute
+      target:
+        type: AverageValue
+        averageValue: "50"
+  # External metric: payment processing queue
+  - type: External
+    external:
+      metric:
+        name: payment_processing_queue_depth
+      target:
+        type: AverageValue
+        averageValue: "15"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Más conservador para orders
+      policies:
+      - type: Percent
+        value: 5
+        periodSeconds: 120
+      - type: Pods
+        value: 1
+        periodSeconds: 120
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 30   # Escalado rápido para peaks de órdenes
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 5
+        periodSeconds: 30
+      selectPolicy: Max
+
+---
+# ============================================================================
+# HPA PARA PAYMENT-SERVICE
+# ============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-service-hpa
+  namespace: default
+  labels:
+    app: payment-service
+    component: autoscaling
+    tier: hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  minReplicas: 3
+  maxReplicas: 25
+  metrics:
+  # CPU-based scaling conservativo para transacciones
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 65
+  # Memory-based scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metric: payment transactions per second
+  - type: Pods
+    pods:
+      metric:
+        name: payment_transactions_per_second
+      target:
+        type: AverageValue
+        averageValue: "20"
+  # External metric: fraud detection queue
+  - type: External
+    external:
+      metric:
+        name: fraud_detection_queue_depth
+      target:
+        type: AverageValue
+        averageValue: "5"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 900  # Muy conservador para pagos
+      policies:
+      - type: Percent
+        value: 5
+        periodSeconds: 180
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Max
+
+---
+# ============================================================================
+# VPA PARA USER-SERVICE
+# ============================================================================
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: user-service-vpa
+  namespace: default
+  labels:
+    app: user-service
+    component: autoscaling
+    tier: vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-service
+  updatePolicy:
+    updateMode: "Auto"
+    minReplicas: 2
+  resourcePolicy:
+    containerPolicies:
+    - containerName: user-service
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: 2000m
+        memory: 4Gi
+      controlledResources:
+      - cpu
+      - memory
+      mode: Auto
+    - containerName: istio-proxy
+      mode: "Off"
+
+---
+# ============================================================================
+# VPA PARA ORDER-SERVICE
+# ============================================================================
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: order-service-vpa
+  namespace: default
+  labels:
+    app: order-service
+    component: autoscaling
+    tier: vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: order-service
+  updatePolicy:
+    updateMode: "Auto"
+    minReplicas: 3
+  resourcePolicy:
+    containerPolicies:
+    - containerName: order-service
+      minAllowed:
+        cpu: 200m
+        memory: 256Mi
+      maxAllowed:
+        cpu: 4000m
+        memory: 8Gi
+      controlledResources:
+      - cpu
+      - memory
+      mode: Auto
+
+---
+# ============================================================================
+# VPA PARA PAYMENT-SERVICE
+# ============================================================================
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: payment-service-vpa
+  namespace: default
+  labels:
+    app: payment-service
+    component: autoscaling
+    tier: vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  updatePolicy:
+    updateMode: "Auto"
+    minReplicas: 3
+  resourcePolicy:
+    containerPolicies:
+    - containerName: payment-service
+      minAllowed:
+        cpu: 200m
+        memory: 256Mi
+      maxAllowed:
+        cpu: 3000m
+        memory: 6Gi
+      controlledResources:
+      - cpu
+      - memory
+      mode: Auto
+
+---
+# ============================================================================
+# RBAC PARA VPA
+# ============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vpa-recommender
+  namespace: kube-system
+  labels:
+    component: autoscaling
+    app: vpa-recommender
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vpa-updater
+  namespace: kube-system
+  labels:
+    component: autoscaling
+    app: vpa-updater
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vpa-admission-controller
+  namespace: kube-system
+  labels:
+    component: autoscaling
+    app: vpa-admission-controller
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vpa-actor
+  labels:
+    component: autoscaling
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "limitranges"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+- apiGroups: ["poc.autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vpa-checkpoint-actor
+  labels:
+    component: autoscaling
+rules:
+- apiGroups: ["poc.autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalercheckpoints"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+- apiGroups: ["autoscaling.k8s.io"]
+  resources: ["verticalpodautoscalercheckpoints"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vpa-evictioner
+  labels:
+    component: autoscaling
+rules:
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpa-actor
+  labels:
+    component: autoscaling
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vpa-actor
+subjects:
+- kind: ServiceAccount
+  name: vpa-recommender
+  namespace: kube-system
+- kind: ServiceAccount
+  name: vpa-updater
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpa-checkpoint-actor
+  labels:
+    component: autoscaling
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vpa-checkpoint-actor
+subjects:
+- kind: ServiceAccount
+  name: vpa-recommender
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpa-evictioner
+  labels:
+    component: autoscaling
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vpa-evictioner
+subjects:
+- kind: ServiceAccount
+  name: vpa-updater
+  namespace: kube-system
+
+---
+# ============================================================================
+# SERVICES PARA VPA METRICS
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpa-recommender
+  namespace: kube-system
+  labels:
+    app: vpa-recommender
+    component: autoscaling
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: metrics
+  selector:
+    app: vpa-recommender
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpa-admission-controller
+  namespace: kube-system
+  labels:
+    app: vpa-admission-controller
+    component: autoscaling
+spec:
+  ports:
+  - port: 443
+    targetPort: 8000
+    name: webhook
+  - port: 8080
+    targetPort: 8080
+    name: metrics
+  selector:
+    app: vpa-admission-controller
+
+---
+# ============================================================================
+# SECRET PARA VPA WEBHOOK CERTIFICATES
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vpa-webhook-certs
+  namespace: kube-system
+  labels:
+    app: vpa-admission-controller
+    component: autoscaling
+type: kubernetes.io/tls
+data:
+  # Los certificados serán generados automáticamente
+  ca.crt: ""
+  tls.crt: ""
+  tls.key: ""

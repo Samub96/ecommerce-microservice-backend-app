@@ -1,0 +1,618 @@
+# ============================================================================
+# INGRESS PRINCIPAL PARA ACCESO UNIFICADO AL STACK DE MONITOREO
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-unified-ingress
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: unified-ingress
+    tier: infrastructure
+  annotations:
+    # Configuración básica de NGINX
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Configuración de proxies y timeouts
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffering: "on"
+    
+    # Configuración de rate limiting
+    nginx.ingress.kubernetes.io/rate-limit-rpm: "300"
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    
+    # Headers de seguridad
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' wss: https:; font-src 'self' data:;" always;
+    
+    # Configuración de autenticación básica (opcional)
+    # nginx.ingress.kubernetes.io/auth-type: basic
+    # nginx.ingress.kubernetes.io/auth-secret: monitoring-basic-auth
+    # nginx.ingress.kubernetes.io/auth-realm: 'Monitoring Dashboard - Authentication Required'
+    
+    # Configuración de whitelist IP (opcional para producción)
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/16,192.168.0.0/16"
+    
+    # Configuración de sticky sessions para Grafana
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "monitoring-route"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
+
+spec:
+  tls:
+  - hosts:
+    - monitoring.ecommerce.example.com
+    secretName: monitoring-unified-tls
+  
+  rules:
+  - host: monitoring.ecommerce.example.com
+    http:
+      paths:
+      # ================================================
+      # PROMETHEUS - Métricas y alertas
+      # ================================================
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-ecommerce
+            port:
+              number: 9090
+      
+      # ================================================
+      # GRAFANA - Dashboards y visualizaciones
+      # ================================================
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+      
+      # ================================================
+      # ALERTMANAGER - Gestión de alertas
+      # ================================================
+      - path: /alertmanager
+        pathType: Prefix
+        backend:
+          service:
+            name: alertmanager-ecommerce
+            port:
+              number: 9093
+      
+      # ================================================
+      # JAEGER - Distributed Tracing
+      # ================================================
+      - path: /jaeger
+        pathType: Prefix
+        backend:
+          service:
+            name: ecommerce-jaeger-query
+            port:
+              number: 16686
+      
+      # ================================================
+      # KIBANA - Log Analysis
+      # ================================================
+      - path: /kibana
+        pathType: Prefix
+        backend:
+          service:
+            name: kibana
+            port:
+              number: 5601
+      
+      # ================================================
+      # ELASTICSEARCH - Direct access (admin only)
+      # ================================================
+      - path: /elasticsearch
+        pathType: Prefix
+        backend:
+          service:
+            name: elasticsearch-logging-svc
+            port:
+              number: 9200
+      
+      # ================================================
+      # PÁGINA DE INICIO DEL MONITOREO
+      # ================================================
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-homepage
+            port:
+              number: 8080
+
+---
+# ============================================================================
+# SERVICIO PARA PÁGINA DE INICIO DEL MONITOREO
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-homepage-config
+  namespace: monitoring
+  labels:
+    app: monitoring-homepage
+    component: configuration
+data:
+  nginx.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        
+        # Gzip compression
+        gzip on;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+        
+        location / {
+            try_files $uri $uri/ =404;
+        }
+        
+        location /health {
+            return 200 "OK";
+            add_header Content-Type text/plain;
+        }
+    }
+  
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Ecommerce Microservices - Monitoring Dashboard</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .container {
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+                padding: 3rem;
+                max-width: 1200px;
+                width: 90%;
+            }
+            
+            .header {
+                text-align: center;
+                margin-bottom: 3rem;
+            }
+            
+            .header h1 {
+                color: #2c3e50;
+                font-size: 2.5rem;
+                margin-bottom: 0.5rem;
+                font-weight: 700;
+            }
+            
+            .header p {
+                color: #7f8c8d;
+                font-size: 1.2rem;
+            }
+            
+            .services-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 2rem;
+                margin-bottom: 3rem;
+            }
+            
+            .service-card {
+                background: #f8f9fa;
+                border-radius: 15px;
+                padding: 2rem;
+                text-align: center;
+                transition: all 0.3s ease;
+                border: 2px solid transparent;
+            }
+            
+            .service-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+                border-color: #3498db;
+            }
+            
+            .service-icon {
+                font-size: 3rem;
+                margin-bottom: 1rem;
+            }
+            
+            .service-card h3 {
+                color: #2c3e50;
+                margin-bottom: 1rem;
+                font-size: 1.5rem;
+            }
+            
+            .service-card p {
+                color: #7f8c8d;
+                margin-bottom: 2rem;
+                line-height: 1.6;
+            }
+            
+            .service-link {
+                display: inline-block;
+                background: linear-gradient(135deg, #3498db, #2980b9);
+                color: white;
+                text-decoration: none;
+                padding: 1rem 2rem;
+                border-radius: 30px;
+                font-weight: 600;
+                transition: all 0.3s ease;
+            }
+            
+            .service-link:hover {
+                transform: scale(1.05);
+                background: linear-gradient(135deg, #2980b9, #1f639e);
+            }
+            
+            .system-status {
+                background: #e8f5e8;
+                border-radius: 15px;
+                padding: 2rem;
+                text-align: center;
+                margin-top: 2rem;
+                border-left: 5px solid #27ae60;
+            }
+            
+            .system-status h3 {
+                color: #27ae60;
+                margin-bottom: 0.5rem;
+            }
+            
+            .footer {
+                text-align: center;
+                margin-top: 3rem;
+                padding-top: 2rem;
+                border-top: 1px solid #ecf0f1;
+                color: #95a5a6;
+            }
+            
+            @media (max-width: 768px) {
+                .container {
+                    padding: 2rem;
+                    width: 95%;
+                }
+                
+                .header h1 {
+                    font-size: 2rem;
+                }
+                
+                .services-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚀 Ecommerce Microservices</h1>
+                <p>Panel de Monitoreo y Observabilidad Enterprise</p>
+            </div>
+            
+            <div class="services-grid">
+                <div class="service-card">
+                    <div class="service-icon">📊</div>
+                    <h3>Grafana</h3>
+                    <p>Dashboards interactivos para visualizar métricas de negocio, rendimiento del sistema y KPIs en tiempo real</p>
+                    <a href="/grafana" class="service-link">Acceder a Grafana</a>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-icon">🔍</div>
+                    <h3>Prometheus</h3>
+                    <p>Sistema de monitoreo y alertas para recopilar y consultar métricas de todos los microservicios</p>
+                    <a href="/prometheus" class="service-link">Acceder a Prometheus</a>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-icon">🚨</div>
+                    <h3>Alertmanager</h3>
+                    <p>Gestión inteligente de alertas con notificaciones via Slack, email y escalamiento automático</p>
+                    <a href="/alertmanager" class="service-link">Acceder a Alertmanager</a>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-icon">🗂️</div>
+                    <h3>Jaeger</h3>
+                    <p>Distributed tracing para analizar el flujo de requests entre microservicios y detectar cuellos de botella</p>
+                    <a href="/jaeger" class="service-link">Acceder a Jaeger</a>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-icon">📋</div>
+                    <h3>Kibana</h3>
+                    <p>Análisis avanzado de logs con búsqueda, filtrado y visualizaciones para troubleshooting</p>
+                    <a href="/kibana" class="service-link">Acceder a Kibana</a>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-icon">🔧</div>
+                    <h3>Elasticsearch</h3>
+                    <p>Motor de búsqueda y análisis para consultas avanzadas sobre logs y eventos del sistema</p>
+                    <a href="/elasticsearch" class="service-link">Acceder a Elasticsearch</a>
+                </div>
+            </div>
+            
+            <div class="system-status">
+                <h3>✅ Sistema Operativo</h3>
+                <p>Todos los servicios de monitoreo están funcionando correctamente</p>
+                <small>Última actualización: <span id="timestamp"></span></small>
+            </div>
+            
+            <div class="footer">
+                <p>© 2024 Ecommerce Microservices - Monitoring Stack v1.0.0</p>
+                <p>Powered by Kubernetes, Prometheus, Grafana, Jaeger & ELK Stack</p>
+            </div>
+        </div>
+        
+        <script>
+            // Actualizar timestamp
+            document.getElementById('timestamp').textContent = new Date().toLocaleString('es-ES');
+            
+            // Verificar estado de servicios cada 30 segundos
+            function checkSystemHealth() {
+                // Aquí podrías hacer llamadas AJAX para verificar el estado real de los servicios
+                console.log('Checking system health...');
+            }
+            
+            setInterval(checkSystemHealth, 30000);
+        </script>
+    </body>
+    </html>
+
+---
+# Deployment para la página de inicio del monitoreo
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-homepage
+  namespace: monitoring
+  labels:
+    app: monitoring-homepage
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: monitoring-homepage
+  template:
+    metadata:
+      labels:
+        app: monitoring-homepage
+        component: frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+      containers:
+      - name: nginx
+        image: nginx:1.24-alpine
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+        ports:
+        - containerPort: 8080
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: nginx.conf
+        - name: html-content
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+        - name: tmp
+          mountPath: /tmp
+        - name: var-cache-nginx
+          mountPath: /var/cache/nginx
+        - name: var-run
+          mountPath: /var/run
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: monitoring-homepage-config
+      - name: html-content
+        configMap:
+          name: monitoring-homepage-config
+      - name: tmp
+        emptyDir: {}
+      - name: var-cache-nginx
+        emptyDir: {}
+      - name: var-run
+        emptyDir: {}
+
+---
+# Service para la página de inicio del monitoreo
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-homepage
+  namespace: monitoring
+  labels:
+    app: monitoring-homepage
+    component: frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: monitoring-homepage
+
+---
+# ============================================================================
+# CERTIFICADO TLS PARA MONITOREO UNIFICADO
+# ============================================================================
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: monitoring-unified-cert
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: tls-certificate
+spec:
+  secretName: monitoring-unified-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: monitoring.ecommerce.example.com
+  dnsNames:
+  - monitoring.ecommerce.example.com
+  - monitoring-internal.ecommerce.local
+
+---
+# ============================================================================
+# SECRET PARA AUTENTICACIÓN BÁSICA (OPCIONAL)
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-basic-auth
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: authentication
+type: Opaque
+data:
+  # usuario: admin, contraseña: MonitoringSecure2024!
+  # Generado con: htpasswd -nb admin MonitoringSecure2024!
+  auth: YWRtaW46JGFwcjEkTjg3YVVSRC4kVGZZVE5QQnNRS0xGLlJvN0xjc2tOMA==
+
+---
+# ============================================================================
+# NETWORKPOLICY PARA SEGURIDAD DE MONITOREO
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-ingress-policy
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      component: unified-ingress
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: grafana
+    ports:
+    - protocol: TCP
+      port: 3000
+  - to:
+    - podSelector:
+        matchLabels:
+          app: prometheus-ecommerce
+    ports:
+    - protocol: TCP
+      port: 9090
+  - to:
+    - podSelector:
+        matchLabels:
+          app: alertmanager-ecommerce
+    ports:
+    - protocol: TCP
+      port: 9093
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ecommerce-jaeger
+    ports:
+    - protocol: TCP
+      port: 16686
+  - to:
+    - podSelector:
+        matchLabels:
+          app: kibana
+    ports:
+    - protocol: TCP
+      port: 5601
+  - to:
+    - podSelector:
+        matchLabels:
+          app: elasticsearch-logging
+    ports:
+    - protocol: TCP
+      port: 9200

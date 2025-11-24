@@ -1,0 +1,814 @@
+# ============================================================================
+# PERFORMANCE TESTING SUITE CON JMETER Y K6
+# CONFIGURACIONES PARA PRUEBAS DE CARGA Y ESTRÉS
+# ============================================================================
+
+# ============================================================================
+# NAMESPACE PARA PERFORMANCE TESTING
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: performance-testing
+  labels:
+    name: performance-testing
+    component: testing
+    purpose: load-testing
+
+---
+# ============================================================================
+# JMETER MASTER DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jmeter-master
+  namespace: performance-testing
+  labels:
+    app: jmeter-master
+    component: load-testing
+    role: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jmeter-master
+  template:
+    metadata:
+      labels:
+        app: jmeter-master
+        component: load-testing
+        role: master
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: jmeter-master
+        image: justb4/jmeter:5.5
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 60000
+          name: master-port
+        env:
+        - name: MODE
+          value: "master"
+        - name: JMETER_SLAVES
+          value: "jmeter-slave-0.jmeter-slave.performance-testing.svc.cluster.local,jmeter-slave-1.jmeter-slave.performance-testing.svc.cluster.local,jmeter-slave-2.jmeter-slave.performance-testing.svc.cluster.local"
+        - name: HEAP
+          value: "-Xms2g -Xmx4g"
+        - name: JVM_ARGS
+          value: "-Dserver.rmi.ssl.disable=true -Djava.rmi.server.hostname=jmeter-master"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🚀 Starting JMeter Master..."
+          echo "Slaves: $JMETER_SLAVES"
+          
+          # Esperar a que los slaves estén listos
+          for slave in $(echo $JMETER_SLAVES | tr ',' ' '); do
+            echo "⏳ Waiting for slave: $slave"
+            while ! nc -z $slave 1099; do
+              sleep 2
+            done
+            echo "✅ Slave $slave is ready"
+          done
+          
+          # Iniciar JMeter en modo master
+          jmeter -n -s -Dserver.rmi.ssl.disable=true -Djava.rmi.server.hostname=jmeter-master
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          tcpSocket:
+            port: 60000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 60000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: jmeter-test-plans
+          mountPath: /opt/apache-jmeter/test-plans
+        - name: jmeter-results
+          mountPath: /opt/apache-jmeter/results
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: jmeter-test-plans
+        configMap:
+          name: jmeter-test-plans
+      - name: jmeter-results
+        persistentVolumeClaim:
+          claimName: jmeter-results-pvc
+      - name: tmp
+        emptyDir: {}
+
+---
+# ============================================================================
+# JMETER SLAVES STATEFULSET
+# ============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jmeter-slave
+  namespace: performance-testing
+  labels:
+    app: jmeter-slave
+    component: load-testing
+    role: slave
+spec:
+  serviceName: jmeter-slave
+  replicas: 3
+  selector:
+    matchLabels:
+      app: jmeter-slave
+  template:
+    metadata:
+      labels:
+        app: jmeter-slave
+        component: load-testing
+        role: slave
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: jmeter-slave
+        image: justb4/jmeter:5.5
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 1099
+          name: rmi-port
+        - containerPort: 60000
+          name: slave-port
+        env:
+        - name: MODE
+          value: "slave"
+        - name: HEAP
+          value: "-Xms1g -Xmx2g"
+        - name: JVM_ARGS
+          value: "-Dserver.rmi.ssl.disable=true"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🚀 Starting JMeter Slave: $HOSTNAME"
+          echo "Master RMI host: jmeter-master"
+          
+          # Iniciar JMeter en modo slave
+          jmeter-server \
+            -Dserver.rmi.ssl.disable=true \
+            -Djava.rmi.server.hostname=$(hostname -f) \
+            -Dserver.rmi.localport=60000
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+        livenessProbe:
+          tcpSocket:
+            port: 1099
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 1099
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# ============================================================================
+# K6 LOAD TESTING DEPLOYMENT
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k6-load-testing
+  namespace: performance-testing
+  labels:
+    app: k6-load-testing
+    component: load-testing
+    role: k6-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k6-load-testing
+  template:
+    metadata:
+      labels:
+        app: k6-load-testing
+        component: load-testing
+        role: k6-runner
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        fsGroup: 12345
+      restartPolicy: Always
+      containers:
+      - name: k6
+        image: grafana/k6:0.47.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        env:
+        - name: K6_PROMETHEUS_RW_SERVER_URL
+          value: "http://prometheus-ecommerce.monitoring.svc.cluster.local:9090/api/v1/write"
+        - name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM
+          value: "true"
+        - name: K6_WEB_DASHBOARD
+          value: "true"
+        - name: K6_WEB_DASHBOARD_HOST
+          value: "0.0.0.0"
+        - name: K6_WEB_DASHBOARD_PORT
+          value: "5665"
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "🚀 Starting K6 Load Testing Dashboard..."
+          echo "Dashboard URL: http://localhost:5665"
+          
+          # Mantener el contenedor ejecutándose para tests manuales
+          while true; do
+            echo "⏳ K6 ready for testing. Run tests via kubectl exec or web dashboard"
+            sleep 300
+          done
+        ports:
+        - containerPort: 5665
+          name: dashboard
+        - containerPort: 6565
+          name: api
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5665
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5665
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: k6-scripts
+          mountPath: /scripts
+        - name: k6-results
+          mountPath: /results
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: k6-scripts
+        configMap:
+          name: k6-test-scripts
+      - name: k6-results
+        persistentVolumeClaim:
+          claimName: k6-results-pvc
+      - name: tmp
+        emptyDir: {}
+
+---
+# ============================================================================
+# SERVICES PARA PERFORMANCE TESTING
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: jmeter-master
+  namespace: performance-testing
+  labels:
+    app: jmeter-master
+    component: load-testing
+spec:
+  type: ClusterIP
+  ports:
+  - port: 60000
+    targetPort: 60000
+    name: master-port
+  selector:
+    app: jmeter-master
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jmeter-slave
+  namespace: performance-testing
+  labels:
+    app: jmeter-slave
+    component: load-testing
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - port: 1099
+    targetPort: 1099
+    name: rmi-port
+  - port: 60000
+    targetPort: 60000
+    name: slave-port
+  selector:
+    app: jmeter-slave
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k6-dashboard
+  namespace: performance-testing
+  labels:
+    app: k6-load-testing
+    component: load-testing
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5665
+    targetPort: 5665
+    name: dashboard
+  - port: 6565
+    targetPort: 6565
+    name: api
+  selector:
+    app: k6-load-testing
+
+---
+# ============================================================================
+# PERSISTENT VOLUME CLAIMS
+# ============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jmeter-results-pvc
+  namespace: performance-testing
+  labels:
+    app: jmeter
+    component: storage
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: general-ssd
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k6-results-pvc
+  namespace: performance-testing
+  labels:
+    app: k6
+    component: storage
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: general-ssd
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# ============================================================================
+# CONFIGMAP CON TEST PLANS DE JMETER
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jmeter-test-plans
+  namespace: performance-testing
+  labels:
+    app: jmeter
+    component: test-plans
+data:
+  ecommerce-api-test.jmx: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">
+      <hashTree>
+        <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Ecommerce API Load Test">
+          <stringProp name="TestPlan.comments">Load test for ecommerce microservices</stringProp>
+          <boolProp name="TestPlan.functional_mode">false</boolProp>
+          <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+          <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+          <elementProp name="TestPlan.arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="BASE_URL" elementType="Argument">
+                <stringProp name="Argument.name">BASE_URL</stringProp>
+                <stringProp name="Argument.value">http://api-gateway.default.svc.cluster.local</stringProp>
+              </elementProp>
+              <elementProp name="USERS" elementType="Argument">
+                <stringProp name="Argument.name">USERS</stringProp>
+                <stringProp name="Argument.value">100</stringProp>
+              </elementProp>
+              <elementProp name="RAMP_TIME" elementType="Argument">
+                <stringProp name="Argument.name">RAMP_TIME</stringProp>
+                <stringProp name="Argument.value">300</stringProp>
+              </elementProp>
+              <elementProp name="DURATION" elementType="Argument">
+                <stringProp name="Argument.name">DURATION</stringProp>
+                <stringProp name="Argument.value">900</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </TestPlan>
+        <hashTree>
+          <!-- Test scenarios would be added here -->
+        </hashTree>
+      </hashTree>
+    </jmeterTestPlan>
+
+---
+# ============================================================================
+# CONFIGMAP CON SCRIPTS DE K6
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-test-scripts
+  namespace: performance-testing
+  labels:
+    app: k6
+    component: test-scripts
+data:
+  ecommerce-load-test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate } from 'k6/metrics';
+    
+    // Custom metrics
+    const errorRate = new Rate('error_rate');
+    
+    // Test configuration
+    export const options = {
+      stages: [
+        { duration: '2m', target: 50 },   // Ramp up to 50 users
+        { duration: '5m', target: 100 },  // Stay at 100 users
+        { duration: '2m', target: 200 },  // Ramp up to 200 users
+        { duration: '5m', target: 200 },  // Stay at 200 users
+        { duration: '2m', target: 0 },    // Ramp down to 0 users
+      ],
+      thresholds: {
+        http_req_duration: ['p(95)<2000'], // 95% of requests must be below 2s
+        http_req_failed: ['rate<0.05'],    // Error rate must be below 5%
+        error_rate: ['rate<0.05'],
+      },
+    };
+    
+    const BASE_URL = __ENV.BASE_URL || 'http://api-gateway.default.svc.cluster.local';
+    
+    export default function () {
+      // Test user registration
+      let userPayload = JSON.stringify({
+        email: `user${Math.random()}@example.com`,
+        password: 'password123',
+        firstName: 'Test',
+        lastName: 'User'
+      });
+      
+      let userResponse = http.post(`${BASE_URL}/api/users/register`, userPayload, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      let userSuccess = check(userResponse, {
+        'user registration successful': (r) => r.status === 201,
+        'user response time < 2s': (r) => r.timings.duration < 2000,
+      });
+      
+      errorRate.add(!userSuccess);
+      
+      sleep(1);
+      
+      // Test product search
+      let productResponse = http.get(`${BASE_URL}/api/products/search?q=laptop`);
+      
+      let productSuccess = check(productResponse, {
+        'product search successful': (r) => r.status === 200,
+        'product response time < 1s': (r) => r.timings.duration < 1000,
+        'products returned': (r) => JSON.parse(r.body).length > 0,
+      });
+      
+      errorRate.add(!productSuccess);
+      
+      sleep(1);
+      
+      // Test order creation (requires authentication)
+      if (userResponse.status === 201) {
+        let orderPayload = JSON.stringify({
+          items: [
+            { productId: 1, quantity: 2 },
+            { productId: 2, quantity: 1 }
+          ],
+          shippingAddress: {
+            street: '123 Test St',
+            city: 'Test City',
+            postalCode: '12345'
+          }
+        });
+        
+        let orderResponse = http.post(`${BASE_URL}/api/orders`, orderPayload, {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer test-token'
+          },
+        });
+        
+        let orderSuccess = check(orderResponse, {
+          'order creation successful': (r) => r.status === 201,
+          'order response time < 3s': (r) => r.timings.duration < 3000,
+        });
+        
+        errorRate.add(!orderSuccess);
+      }
+      
+      sleep(2);
+    }
+  
+  stress-test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    
+    export const options = {
+      stages: [
+        { duration: '1m', target: 100 },
+        { duration: '3m', target: 500 },
+        { duration: '1m', target: 1000 },
+        { duration: '5m', target: 1000 },
+        { duration: '2m', target: 0 },
+      ],
+      thresholds: {
+        http_req_duration: ['p(99)<5000'],
+        http_req_failed: ['rate<0.1'],
+      },
+    };
+    
+    const BASE_URL = __ENV.BASE_URL || 'http://api-gateway.default.svc.cluster.local';
+    
+    export default function () {
+      const endpoints = [
+        '/api/products',
+        '/api/products/1',
+        '/api/users/profile',
+        '/api/orders/history'
+      ];
+      
+      const endpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
+      
+      let response = http.get(`${BASE_URL}${endpoint}`);
+      
+      check(response, {
+        'status is 200 or 404': (r) => [200, 404].includes(r.status),
+        'response time < 5s': (r) => r.timings.duration < 5000,
+      });
+      
+      sleep(Math.random() * 2);
+    }
+
+---
+# ============================================================================
+# JOB PARA EJECUTAR TESTS AUTOMÁTICOS
+# ============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-automated-test
+  namespace: performance-testing
+  labels:
+    app: k6
+    component: automated-testing
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: k6-job
+        component: automated-testing
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        fsGroup: 12345
+      containers:
+      - name: k6
+        image: grafana/k6:0.47.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        env:
+        - name: K6_PROMETHEUS_RW_SERVER_URL
+          value: "http://prometheus-ecommerce.monitoring.svc.cluster.local:9090/api/v1/write"
+        - name: BASE_URL
+          value: "http://api-gateway.default.svc.cluster.local"
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "🚀 Starting automated K6 load test..."
+          k6 run --out prometheus-rw \
+                 --out json=/results/test-results.json \
+                 /scripts/ecommerce-load-test.js
+          echo "✅ Load test completed"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: k6-scripts
+          mountPath: /scripts
+        - name: k6-results
+          mountPath: /results
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: k6-scripts
+        configMap:
+          name: k6-test-scripts
+      - name: k6-results
+        persistentVolumeClaim:
+          claimName: k6-results-pvc
+      - name: tmp
+        emptyDir: {}
+
+---
+# ============================================================================
+# CRONJOB PARA TESTS PERIÓDICOS
+# ============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: performance-test-schedule
+  namespace: performance-testing
+  labels:
+    app: performance-testing
+    component: scheduled-testing
+spec:
+  schedule: "0 2 * * 1"  # Todos los lunes a las 2 AM
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: k6-scheduled
+            component: scheduled-testing
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 12345
+            fsGroup: 12345
+          containers:
+          - name: k6
+            image: grafana/k6:0.47.0
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            env:
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: "http://prometheus-ecommerce.monitoring.svc.cluster.local:9090/api/v1/write"
+            - name: BASE_URL
+              value: "http://api-gateway.default.svc.cluster.local"
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "🕐 Starting scheduled performance test..."
+              timestamp=$(date +%Y%m%d_%H%M%S)
+              
+              # Ejecutar test de carga
+              k6 run --out prometheus-rw \
+                     --out json=/results/scheduled-test-${timestamp}.json \
+                     /scripts/ecommerce-load-test.js
+              
+              echo "✅ Scheduled performance test completed"
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "200m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            volumeMounts:
+            - name: k6-scripts
+              mountPath: /scripts
+            - name: k6-results
+              mountPath: /results
+            - name: tmp
+              mountPath: /tmp
+          volumes:
+          - name: k6-scripts
+            configMap:
+              name: k6-test-scripts
+          - name: k6-results
+            persistentVolumeClaim:
+              claimName: k6-results-pvc
+          - name: tmp
+            emptyDir: {}
+
+---
+# ============================================================================
+# INGRESS PARA K6 DASHBOARD
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k6-dashboard-ingress
+  namespace: performance-testing
+  labels:
+    app: k6
+    component: dashboard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: k6-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: 'Performance Testing Dashboard'
+spec:
+  tls:
+  - hosts:
+    - performance.ecommerce.example.com
+    secretName: k6-dashboard-tls
+  rules:
+  - host: performance.ecommerce.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: k6-dashboard
+            port:
+              number: 5665
+
+---
+# ============================================================================
+# SECRET PARA AUTENTICACIÓN DEL DASHBOARD
+# ============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k6-basic-auth
+  namespace: performance-testing
+  labels:
+    app: k6
+    component: authentication
+type: Opaque
+data:
+  # usuario: performance, contraseña: TestingSecure2024!
+  auth: cGVyZm9ybWFuY2U6JGFwcjEkbTJQWWw1UlokUC5yVi5oT3lEaEREYmpVQWRVdHN3MA==

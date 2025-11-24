@@ -1,0 +1,561 @@
+# ============================================================================
+# DATA MIGRATION SCRIPTS Y ESTRATEGIAS SIN DOWNTIME
+# ============================================================================
+
+# ConfigMap con scripts de inicialización para MySQL Master
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-scripts
+  namespace: ecommerce-production
+  labels:
+    app: mysql
+    component: initialization
+data:
+  01-create-databases.sql: |
+    -- ===================================================================
+    -- CREACIÓN DE BASES DE DATOS POR MICROSERVICIO
+    -- ===================================================================
+    
+    -- Base de datos para User Service
+    CREATE DATABASE IF NOT EXISTS users_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+    
+    -- Base de datos para Product Service
+    CREATE DATABASE IF NOT EXISTS products_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+    
+    -- Base de datos para Order Service
+    CREATE DATABASE IF NOT EXISTS orders_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+    
+    -- Base de datos para Payment Service
+    CREATE DATABASE IF NOT EXISTS payments_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+    
+    -- Base de datos para Shipping Service
+    CREATE DATABASE IF NOT EXISTS shipping_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+    
+    -- Base de datos para Favourite Service
+    CREATE DATABASE IF NOT EXISTS favourites_db 
+      CHARACTER SET utf8mb4 
+      COLLATE utf8mb4_unicode_ci;
+
+  02-create-users.sql: |
+    -- ===================================================================
+    -- CREACIÓN DE USUARIOS POR MICROSERVICIO
+    -- ===================================================================
+    
+    -- Usuario para replicación
+    CREATE USER IF NOT EXISTS 'replicator'@'%' 
+      IDENTIFIED BY '$MYSQL_REPLICATION_PASSWORD';
+    GRANT REPLICATION SLAVE ON *.* TO 'replicator'@'%';
+    
+    -- Usuario para User Service
+    CREATE USER IF NOT EXISTS 'users_user'@'%' 
+      IDENTIFIED BY 'users_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON users_db.* TO 'users_user'@'%';
+    
+    -- Usuario para Product Service
+    CREATE USER IF NOT EXISTS 'products_user'@'%' 
+      IDENTIFIED BY 'products_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON products_db.* TO 'products_user'@'%';
+    
+    -- Usuario para Order Service
+    CREATE USER IF NOT EXISTS 'orders_user'@'%' 
+      IDENTIFIED BY 'orders_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON orders_db.* TO 'orders_user'@'%';
+    
+    -- Usuario para Payment Service
+    CREATE USER IF NOT EXISTS 'payments_user'@'%' 
+      IDENTIFIED BY 'payments_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON payments_db.* TO 'payments_user'@'%';
+    
+    -- Usuario para Shipping Service
+    CREATE USER IF NOT EXISTS 'shipping_user'@'%' 
+      IDENTIFIED BY 'shipping_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON shipping_db.* TO 'shipping_user'@'%';
+    
+    -- Usuario para Favourite Service
+    CREATE USER IF NOT EXISTS 'favourites_user'@'%' 
+      IDENTIFIED BY 'favourites_secure_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON favourites_db.* TO 'favourites_user'@'%';
+    
+    -- Usuario de solo lectura para analytics
+    CREATE USER IF NOT EXISTS 'analytics_reader'@'%' 
+      IDENTIFIED BY 'analytics_readonly_password';
+    GRANT SELECT ON users_db.* TO 'analytics_reader'@'%';
+    GRANT SELECT ON products_db.* TO 'analytics_reader'@'%';
+    GRANT SELECT ON orders_db.* TO 'analytics_reader'@'%';
+    GRANT SELECT ON payments_db.* TO 'analytics_reader'@'%';
+    GRANT SELECT ON shipping_db.* TO 'analytics_reader'@'%';
+    GRANT SELECT ON favourites_db.* TO 'analytics_reader'@'%';
+    
+    FLUSH PRIVILEGES;
+
+  03-create-tables-users.sql: |
+    -- ===================================================================
+    -- TABLAS PARA USER SERVICE
+    -- ===================================================================
+    USE users_db;
+    
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50) NOT NULL UNIQUE,
+      email VARCHAR(100) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      first_name VARCHAR(50) NOT NULL,
+      last_name VARCHAR(50) NOT NULL,
+      phone VARCHAR(20),
+      is_active BOOLEAN DEFAULT TRUE,
+      is_verified BOOLEAN DEFAULT FALSE,
+      role ENUM('USER', 'ADMIN', 'MODERATOR') DEFAULT 'USER',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP NULL,
+      INDEX idx_username (username),
+      INDEX idx_email (email),
+      INDEX idx_created_at (created_at),
+      INDEX idx_role (role),
+      INDEX idx_active_verified (is_active, is_verified)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      avatar_url VARCHAR(255),
+      date_of_birth DATE,
+      gender ENUM('MALE', 'FEMALE', 'OTHER'),
+      address_line_1 VARCHAR(100),
+      address_line_2 VARCHAR(100),
+      city VARCHAR(50),
+      state VARCHAR(50),
+      postal_code VARCHAR(20),
+      country VARCHAR(50) DEFAULT 'US',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_user_id (user_id),
+      INDEX idx_city_state (city, state)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  04-create-tables-products.sql: |
+    -- ===================================================================
+    -- TABLAS PARA PRODUCT SERVICE
+    -- ===================================================================
+    USE products_db;
+    
+    CREATE TABLE IF NOT EXISTS categories (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      slug VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      parent_id BIGINT NULL,
+      is_active BOOLEAN DEFAULT TRUE,
+      sort_order INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+      INDEX idx_slug (slug),
+      INDEX idx_parent_id (parent_id),
+      INDEX idx_active_sort (is_active, sort_order)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    
+    CREATE TABLE IF NOT EXISTS products (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,
+      slug VARCHAR(200) NOT NULL UNIQUE,
+      description TEXT,
+      short_description VARCHAR(500),
+      sku VARCHAR(50) NOT NULL UNIQUE,
+      category_id BIGINT,
+      price DECIMAL(10,2) NOT NULL,
+      compare_price DECIMAL(10,2) NULL,
+      cost_price DECIMAL(10,2) NULL,
+      weight DECIMAL(8,2) DEFAULT 0.00,
+      dimensions_length DECIMAL(8,2) DEFAULT 0.00,
+      dimensions_width DECIMAL(8,2) DEFAULT 0.00,
+      dimensions_height DECIMAL(8,2) DEFAULT 0.00,
+      inventory_quantity INT DEFAULT 0,
+      inventory_tracked BOOLEAN DEFAULT TRUE,
+      allow_backorder BOOLEAN DEFAULT FALSE,
+      is_active BOOLEAN DEFAULT TRUE,
+      is_featured BOOLEAN DEFAULT FALSE,
+      meta_title VARCHAR(200),
+      meta_description VARCHAR(300),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP NULL,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+      INDEX idx_slug (slug),
+      INDEX idx_sku (sku),
+      INDEX idx_category_id (category_id),
+      INDEX idx_price (price),
+      INDEX idx_active_featured (is_active, is_featured),
+      INDEX idx_created_at (created_at),
+      FULLTEXT idx_search (name, description, short_description)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  05-create-tables-orders.sql: |
+    -- ===================================================================
+    -- TABLAS PARA ORDER SERVICE
+    -- ===================================================================
+    USE orders_db;
+    
+    CREATE TABLE IF NOT EXISTS orders (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      order_number VARCHAR(50) NOT NULL UNIQUE,
+      user_id BIGINT NOT NULL,
+      status ENUM('PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED') DEFAULT 'PENDING',
+      total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      subtotal_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      tax_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      shipping_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      currency VARCHAR(3) DEFAULT 'USD',
+      payment_status ENUM('PENDING', 'PAID', 'FAILED', 'REFUNDED') DEFAULT 'PENDING',
+      shipping_address_line_1 VARCHAR(100),
+      shipping_address_line_2 VARCHAR(100),
+      shipping_city VARCHAR(50),
+      shipping_state VARCHAR(50),
+      shipping_postal_code VARCHAR(20),
+      shipping_country VARCHAR(50) DEFAULT 'US',
+      billing_address_line_1 VARCHAR(100),
+      billing_address_line_2 VARCHAR(100),
+      billing_city VARCHAR(50),
+      billing_state VARCHAR(50),
+      billing_postal_code VARCHAR(20),
+      billing_country VARCHAR(50) DEFAULT 'US',
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      confirmed_at TIMESTAMP NULL,
+      shipped_at TIMESTAMP NULL,
+      delivered_at TIMESTAMP NULL,
+      INDEX idx_order_number (order_number),
+      INDEX idx_user_id (user_id),
+      INDEX idx_status (status),
+      INDEX idx_payment_status (payment_status),
+      INDEX idx_created_at (created_at),
+      INDEX idx_total_amount (total_amount)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    
+    CREATE TABLE IF NOT EXISTS order_items (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      order_id BIGINT NOT NULL,
+      product_id BIGINT NOT NULL,
+      product_sku VARCHAR(50) NOT NULL,
+      product_name VARCHAR(200) NOT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      unit_price DECIMAL(10,2) NOT NULL,
+      total_price DECIMAL(10,2) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      INDEX idx_order_id (order_id),
+      INDEX idx_product_id (product_id),
+      INDEX idx_product_sku (product_sku)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  99-master-setup.sql: |
+    -- ===================================================================
+    -- CONFIGURACIÓN ESPECÍFICA DEL MASTER
+    -- ===================================================================
+    
+    -- Configurar replicación
+    RESET MASTER;
+    
+    -- Mostrar información del master para configurar slaves
+    SHOW MASTER STATUS;
+    
+    -- Crear usuario para monitoreo
+    CREATE USER IF NOT EXISTS 'exporter'@'%' 
+      IDENTIFIED BY 'monitoring_password' WITH MAX_USER_CONNECTIONS 3;
+    GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+    
+    FLUSH PRIVILEGES;
+    
+    -- Configurar variables específicas del master
+    SET GLOBAL max_connections = 200;
+    SET GLOBAL innodb_buffer_pool_size = 1073741824; -- 1GB
+    
+    -- Log inicial
+    INSERT INTO mysql.general_log (event_time, user_host, thread_id, server_id, command_type, argument) 
+    VALUES (NOW(), 'system', 1, 1, 'Info', 'MySQL Master initialized successfully');
+
+---
+# ConfigMap con scripts para MySQL Slave
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-slave-scripts
+  namespace: ecommerce-production
+  labels:
+    app: mysql
+    component: slave-initialization
+data:
+  01-slave-setup.sql: |
+    -- ===================================================================
+    -- CONFIGURACIÓN ESPECÍFICA DEL SLAVE
+    -- ===================================================================
+    
+    -- Configurar replicación desde el master
+    STOP SLAVE;
+    
+    CHANGE MASTER TO
+      MASTER_HOST='mysql-master',
+      MASTER_PORT=3306,
+      MASTER_USER='replicator',
+      MASTER_PASSWORD='$MYSQL_REPLICATION_PASSWORD',
+      MASTER_AUTO_POSITION=1,
+      MASTER_SSL=1;
+    
+    START SLAVE;
+    
+    -- Verificar estado de replicación
+    SHOW SLAVE STATUS\G
+    
+    -- Crear usuario para monitoreo del slave
+    CREATE USER IF NOT EXISTS 'exporter'@'%' 
+      IDENTIFIED BY 'monitoring_password' WITH MAX_USER_CONNECTIONS 3;
+    GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+    
+    FLUSH PRIVILEGES;
+    
+    -- Configurar variables específicas del slave
+    SET GLOBAL max_connections = 100;
+    SET GLOBAL read_only = 1;
+    SET GLOBAL super_read_only = 1;
+
+---
+# ============================================================================
+# JOB DE MIGRACIÓN DE DATOS SIN DOWNTIME
+# ============================================================================
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-migration-job
+  namespace: ecommerce-production
+  labels:
+    app: data-migration
+    component: database-migration
+    migration-type: zero-downtime
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: data-migration
+        component: database-migration
+    spec:
+      serviceAccountName: data-migration-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      containers:
+      - name: migration-runner
+        image: mysql:8.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🚀 Starting Zero-Downtime Data Migration..."
+          echo "Migration Date: $(date)"
+          echo "Source: Legacy Database"
+          echo "Target: MySQL Master-Slave Cluster"
+          
+          # Variables de conexión
+          MYSQL_ROOT_PASSWORD=$(cat /etc/mysql-secrets/mysql-root-password)
+          MASTER_HOST="mysql-master"
+          
+          # Función para ejecutar SQL en el master
+          execute_sql() {
+            mysql -h $MASTER_HOST -u root -p$MYSQL_ROOT_PASSWORD -e "$1"
+          }
+          
+          # Función para verificar replicación
+          check_replication() {
+            echo "🔍 Verificando estado de replicación..."
+            mysql -h mysql-slave -u root -p$MYSQL_ROOT_PASSWORD -e "SHOW SLAVE STATUS\G" | grep -E "(Slave_IO_Running|Slave_SQL_Running|Seconds_Behind_Master)"
+          }
+          
+          # 1. Crear índices para mejorar performance durante migración
+          echo "📊 Creando índices temporales para migración..."
+          execute_sql "CREATE INDEX IF NOT EXISTS idx_migration_temp_users ON users_db.users (created_at, id);"
+          execute_sql "CREATE INDEX IF NOT EXISTS idx_migration_temp_products ON products_db.products (created_at, id);"
+          execute_sql "CREATE INDEX IF NOT EXISTS idx_migration_temp_orders ON orders_db.orders (created_at, id);"
+          
+          # 2. Insertar datos de ejemplo para demostración
+          echo "📝 Insertando datos de demostración..."
+          
+          # Usuarios de ejemplo
+          execute_sql "INSERT IGNORE INTO users_db.users (username, email, password_hash, first_name, last_name, phone, role) VALUES
+            ('admin', 'admin@ecommerce.com', '\$2a\$10\$hash1', 'Admin', 'User', '+1234567890', 'ADMIN'),
+            ('john_doe', 'john@example.com', '\$2a\$10\$hash2', 'John', 'Doe', '+1234567891', 'USER'),
+            ('jane_smith', 'jane@example.com', '\$2a\$10\$hash3', 'Jane', 'Smith', '+1234567892', 'USER'),
+            ('moderator', 'mod@ecommerce.com', '\$2a\$10\$hash4', 'Moderator', 'User', '+1234567893', 'MODERATOR');"
+          
+          # Categorías de ejemplo
+          execute_sql "INSERT IGNORE INTO products_db.categories (name, slug, description, is_active, sort_order) VALUES
+            ('Electronics', 'electronics', 'Electronic devices and accessories', TRUE, 1),
+            ('Clothing', 'clothing', 'Fashion and apparel', TRUE, 2),
+            ('Books', 'books', 'Books and educational materials', TRUE, 3),
+            ('Home & Garden', 'home-garden', 'Home improvement and gardening', TRUE, 4);"
+          
+          # Productos de ejemplo
+          execute_sql "INSERT IGNORE INTO products_db.products (name, slug, description, sku, category_id, price, inventory_quantity, is_active, is_featured) VALUES
+            ('Smartphone XYZ', 'smartphone-xyz', 'Latest smartphone with advanced features', 'PHONE-001', 1, 699.99, 50, TRUE, TRUE),
+            ('Laptop ABC', 'laptop-abc', 'High-performance laptop for professionals', 'LAPTOP-001', 1, 1299.99, 25, TRUE, TRUE),
+            ('T-Shirt Classic', 'tshirt-classic', 'Comfortable cotton t-shirt', 'SHIRT-001', 2, 29.99, 100, TRUE, FALSE),
+            ('Programming Book', 'programming-book', 'Learn programming fundamentals', 'BOOK-001', 3, 49.99, 75, TRUE, FALSE);"
+          
+          # Órdenes de ejemplo
+          execute_sql "INSERT IGNORE INTO orders_db.orders (order_number, user_id, status, total_amount, subtotal_amount, tax_amount, shipping_amount, currency, payment_status) VALUES
+            ('ORD-2024-001', 2, 'DELIVERED', 759.98, 699.99, 49.99, 9.99, 'USD', 'PAID'),
+            ('ORD-2024-002', 3, 'SHIPPED', 79.98, 59.98, 4.20, 15.80, 'USD', 'PAID'),
+            ('ORD-2024-003', 2, 'PROCESSING', 1349.98, 1299.99, 91.00, 59.99, 'USD', 'PAID');"
+          
+          # Items de órdenes
+          execute_sql "INSERT IGNORE INTO orders_db.order_items (order_id, product_id, product_sku, product_name, quantity, unit_price, total_price) VALUES
+            (1, 1, 'PHONE-001', 'Smartphone XYZ', 1, 699.99, 699.99),
+            (2, 3, 'SHIRT-001', 'T-Shirt Classic', 2, 29.99, 59.98),
+            (3, 2, 'LAPTOP-001', 'Laptop ABC', 1, 1299.99, 1299.99);"
+          
+          # 3. Verificar integridad de datos
+          echo "🔍 Verificando integridad de datos migrados..."
+          
+          USER_COUNT=$(execute_sql "SELECT COUNT(*) FROM users_db.users;" | tail -1)
+          PRODUCT_COUNT=$(execute_sql "SELECT COUNT(*) FROM products_db.products;" | tail -1)
+          ORDER_COUNT=$(execute_sql "SELECT COUNT(*) FROM orders_db.orders;" | tail -1)
+          
+          echo "✅ Usuarios migrados: $USER_COUNT"
+          echo "✅ Productos migrados: $PRODUCT_COUNT"
+          echo "✅ Órdenes migradas: $ORDER_COUNT"
+          
+          # 4. Verificar replicación
+          check_replication
+          
+          # 5. Crear vistas para análisis
+          echo "📊 Creando vistas para análisis..."
+          execute_sql "CREATE OR REPLACE VIEW analytics_db.user_order_summary AS
+            SELECT 
+              u.id as user_id,
+              u.username,
+              u.email,
+              COUNT(o.id) as total_orders,
+              COALESCE(SUM(o.total_amount), 0) as total_spent,
+              MAX(o.created_at) as last_order_date
+            FROM users_db.users u
+            LEFT JOIN orders_db.orders o ON u.id = o.user_id
+            WHERE u.deleted_at IS NULL
+            GROUP BY u.id, u.username, u.email;"
+          
+          # 6. Limpiar índices temporales
+          echo "🧹 Limpiando índices temporales..."
+          execute_sql "DROP INDEX IF EXISTS idx_migration_temp_users ON users_db.users;"
+          execute_sql "DROP INDEX IF EXISTS idx_migration_temp_products ON products_db.products;"
+          execute_sql "DROP INDEX IF EXISTS idx_migration_temp_orders ON orders_db.orders;"
+          
+          # 7. Optimizar tablas
+          echo "⚡ Optimizando tablas después de la migración..."
+          execute_sql "OPTIMIZE TABLE users_db.users, users_db.user_profiles;"
+          execute_sql "OPTIMIZE TABLE products_db.products, products_db.categories;"
+          execute_sql "OPTIMIZE TABLE orders_db.orders, orders_db.order_items;"
+          
+          echo "✅ Migración de datos completada exitosamente!"
+          echo "📈 Estadísticas finales:"
+          echo "  - Tiempo de migración: $(date)"
+          echo "  - Usuarios: $USER_COUNT"
+          echo "  - Productos: $PRODUCT_COUNT"
+          echo "  - Órdenes: $ORDER_COUNT"
+          echo "  - Estado de replicación: Activo"
+          
+        env:
+        - name: MYSQL_PWD
+          valueFrom:
+            secretRef:
+              name: database-sealed-secrets
+              key: mysql-root-password
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: mysql-secrets
+          mountPath: /etc/mysql-secrets
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: mysql-secrets
+        secret:
+          secretName: database-sealed-secrets
+      - name: tmp
+        emptyDir: {}
+      restartPolicy: OnFailure
+---
+# ServiceAccount para migración de datos
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-migration-sa
+  namespace: ecommerce-production
+  labels:
+    app: data-migration
+    component: service-account
+---
+# Role para migración de datos
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: data-migration-role
+  namespace: ecommerce-production
+  labels:
+    app: data-migration
+    component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+  resourceNames: ["database-sealed-secrets"]
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "create"]
+---
+# RoleBinding para migración de datos
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: data-migration-binding
+  namespace: ecommerce-production
+  labels:
+    app: data-migration
+    component: rbac
+subjects:
+- kind: ServiceAccount
+  name: data-migration-sa
+  namespace: ecommerce-production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: data-migration-role

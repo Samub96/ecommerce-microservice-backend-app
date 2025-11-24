@@ -1,0 +1,45 @@
+# Helm Chart para Ecommerce Microservices
+apiVersion: v2
+name: ecommerce-microservices
+description: ⚡ Comprehensive Helm Chart for Ecommerce Microservices Platform
+type: application
+version: 1.0.0
+appVersion: "v0.1.0"
+home: https://github.com/Samub96/ecommerce-microservice-backend-app
+sources:
+  - https://github.com/Samub96/ecommerce-microservice-backend-app
+maintainers:
+  - name: Samub96
+    email: samuelunuzungo@gmail.com
+    url: https://github.com/Samub96
+keywords:
+  - ecommerce
+  - microservices
+  - kubernetes
+  - spring-boot
+  - academic-project
+
+annotations:
+  category: Application
+  licenses: MIT
+  images: |
+    - name: api-gateway
+      image: ghcr.io/samub96/ecommerce/api-gateway:latest
+    - name: user-service
+      image: ghcr.io/samub96/ecommerce/user-service:latest
+    - name: product-service
+      image: ghcr.io/samub96/ecommerce/product-service:latest
+    - name: order-service
+      image: ghcr.io/samub96/ecommerce/order-service:latest
+    - name: payment-service
+      image: ghcr.io/samub96/ecommerce/payment-service:latest
+    - name: shipping-service
+      image: ghcr.io/samub96/ecommerce/shipping-service:latest
+    - name: favourite-service
+      image: ghcr.io/samub96/ecommerce/favourite-service:latest
+    - name: service-discovery
+      image: ghcr.io/samub96/ecommerce/service-discovery:latest
+    - name: cloud-config
+      image: ghcr.io/samub96/ecommerce/cloud-config:latest
+    - name: proxy-client
+      image: ghcr.io/samub96/ecommerce/proxy-client:latest

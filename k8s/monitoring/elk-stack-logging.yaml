@@ -1,0 +1,945 @@
+# ============================================================================
+# ELK STACK (ELASTICSEARCH, LOGSTASH, KIBANA) PARA LOGGING CENTRALIZADO
+# ============================================================================
+
+# ============================================================================
+# ELASTICSEARCH CLUSTER PARA LOGS
+# ============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch-logging
+  namespace: monitoring
+  labels:
+    app: elasticsearch-logging
+    component: logging
+spec:
+  serviceName: elasticsearch-logging
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch-logging
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-logging
+        component: logging
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+      - name: elasticsearch-logging-init
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "🔧 Configuring Elasticsearch for logging..."
+          sysctl -w vm.max_map_count=262144
+          chown -R 1000:1000 /usr/share/elasticsearch/data
+          echo "✅ Elasticsearch logging configuration completed"
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /usr/share/elasticsearch/data
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+        env:
+        - name: cluster.name
+          value: "logging-cluster"
+        - name: node.name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: discovery.seed_hosts
+          value: "elasticsearch-logging-0.elasticsearch-logging,elasticsearch-logging-1.elasticsearch-logging,elasticsearch-logging-2.elasticsearch-logging"
+        - name: cluster.initial_master_nodes
+          value: "elasticsearch-logging-0,elasticsearch-logging-1,elasticsearch-logging-2"
+        - name: ES_JAVA_OPTS
+          value: "-Xms2g -Xmx2g"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: xpack.monitoring.collection.enabled
+          value: "true"
+        - name: network.host
+          value: "0.0.0.0"
+        - name: bootstrap.memory_lock
+          value: "false"
+        livenessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?wait_for_status=yellow
+            port: 9200
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "3Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /usr/share/elasticsearch/data
+        - name: elasticsearch-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: elasticsearch-config
+        configMap:
+          name: elasticsearch-logging-config
+      - name: tmp
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: elasticsearch-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: general-ssd
+      resources:
+        requests:
+          storage: 100Gi
+
+---
+# ConfigMap para Elasticsearch Logging
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-logging-config
+  namespace: monitoring
+  labels:
+    app: elasticsearch-logging
+    component: config
+data:
+  elasticsearch.yml: |
+    cluster.name: logging-cluster
+    network.host: 0.0.0.0
+    discovery.seed_hosts: ["elasticsearch-logging-0.elasticsearch-logging", "elasticsearch-logging-1.elasticsearch-logging", "elasticsearch-logging-2.elasticsearch-logging"]
+    cluster.initial_master_nodes: ["elasticsearch-logging-0", "elasticsearch-logging-1", "elasticsearch-logging-2"]
+    
+    # Performance settings for logging workloads
+    indices.memory.index_buffer_size: 15%
+    indices.memory.min_index_buffer_size: 96mb
+    indices.fielddata.cache.size: 30%
+    
+    # Thread pool optimizations for logging
+    thread_pool:
+      write:
+        size: 4
+        queue_size: 2000
+      search:
+        size: 6
+        queue_size: 2000
+      index:
+        size: 4
+        queue_size: 1000
+    
+    # Index settings optimized for logs
+    action.auto_create_index: "+logstash-*,+filebeat-*,+metricbeat-*,+application-logs-*"
+    
+    # Logging-specific settings
+    index:
+      number_of_shards: 3
+      number_of_replicas: 1
+      refresh_interval: 10s
+      translog.flush_threshold_size: 256mb
+    
+    # ILM settings for log rotation
+    xpack.ilm.poll_interval: "10m"
+    
+    # Security disabled for internal use
+    xpack.security.enabled: false
+    xpack.monitoring.collection.enabled: true
+
+---
+# Service para Elasticsearch Logging
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-logging
+  namespace: monitoring
+  labels:
+    app: elasticsearch-logging
+    component: logging
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9200
+    targetPort: 9200
+    name: http
+  - port: 9300
+    targetPort: 9300
+    name: transport
+  selector:
+    app: elasticsearch-logging
+  clusterIP: None
+
+---
+# Service para acceso externo a Elasticsearch
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-logging-svc
+  namespace: monitoring
+  labels:
+    app: elasticsearch-logging
+    component: service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9200
+    targetPort: 9200
+    name: http
+  selector:
+    app: elasticsearch-logging
+
+---
+# ============================================================================
+# LOGSTASH DEPLOYMENT PARA PROCESAMIENTO DE LOGS
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: monitoring
+  labels:
+    app: logstash
+    component: logging-processor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+        component: logging-processor
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.11.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 5044
+          name: beats
+        - containerPort: 9600
+          name: http
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xms2g -Xmx2g"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: MONITORING_ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch-logging:9200"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9600
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9600
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "3Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: logstash-config
+          mountPath: /usr/share/logstash/config/logstash.yml
+          subPath: logstash.yml
+        - name: logstash-pipeline
+          mountPath: /usr/share/logstash/pipeline
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: logstash-config
+        configMap:
+          name: logstash-config
+      - name: logstash-pipeline
+        configMap:
+          name: logstash-pipeline
+      - name: tmp
+        emptyDir: {}
+
+---
+# ConfigMap para configuración de Logstash
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: monitoring
+  labels:
+    app: logstash
+    component: config
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    xpack.monitoring.enabled: true
+    xpack.monitoring.elasticsearch.hosts: ["http://elasticsearch-logging:9200"]
+    
+    # Pipeline settings
+    pipeline.workers: 4
+    pipeline.batch.size: 2000
+    pipeline.batch.delay: 50
+    
+    # Queue settings
+    queue.type: persisted
+    queue.max_bytes: 8gb
+    queue.drain: true
+    
+    # Dead letter queue
+    dead_letter_queue.enable: true
+    dead_letter_queue.max_bytes: 1gb
+    
+    # Log settings
+    log.level: info
+    path.logs: /var/log/logstash
+
+---
+# ConfigMap para pipeline de Logstash
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-pipeline
+  namespace: monitoring
+  labels:
+    app: logstash
+    component: pipeline
+data:
+  main.conf: |
+    input {
+      # Beats input para recibir logs de Filebeat
+      beats {
+        port => 5044
+        host => "0.0.0.0"
+      }
+      
+      # TCP input para logs directos de aplicaciones
+      tcp {
+        port => 5000
+        codec => json_lines
+        tags => ["application-direct"]
+      }
+      
+      # HTTP input para webhooks y logs via HTTP
+      http {
+        port => 8080
+        tags => ["http-input"]
+      }
+    }
+    
+    filter {
+      # Filtro para logs de Kubernetes
+      if [kubernetes] {
+        # Extraer información del pod
+        if [kubernetes][pod_name] {
+          mutate {
+            add_field => { "service_name" => "%{[kubernetes][pod_name]}" }
+          }
+        }
+        
+        # Parsear logs de Spring Boot
+        if [kubernetes][container_name] =~ /(.*)-service/ {
+          grok {
+            match => { 
+              "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:log_level} \[%{DATA:service},%{DATA:trace_id},%{DATA:span_id},%{DATA:export}\] %{NUMBER:pid} --- \[%{DATA:thread}\] %{DATA:class} : %{GREEDYDATA:log_message}"
+            }
+            tag_on_failure => ["_grokparsefailure_springboot"]
+          }
+          
+          # Convertir timestamp
+          if ![_grokparsefailure_springboot] {
+            date {
+              match => [ "timestamp", "yyyy-MM-dd HH:mm:ss.SSS" ]
+            }
+          }
+        }
+        
+        # Filtros para diferentes tipos de logs
+        if "user-service" in [kubernetes][pod_name] {
+          mutate {
+            add_field => { "microservice" => "user-service" }
+            add_field => { "business_domain" => "user-management" }
+          }
+        } else if "order-service" in [kubernetes][pod_name] {
+          mutate {
+            add_field => { "microservice" => "order-service" }
+            add_field => { "business_domain" => "order-management" }
+          }
+          
+          # Extraer información de pedidos
+          if [log_message] =~ /Order/ {
+            grok {
+              match => { "log_message" => "Order (?<order_action>created|updated|cancelled|completed) with ID: (?<order_id>\d+)" }
+            }
+          }
+        } else if "payment-service" in [kubernetes][pod_name] {
+          mutate {
+            add_field => { "microservice" => "payment-service" }
+            add_field => { "business_domain" => "payment-processing" }
+          }
+          
+          # Extraer información de pagos
+          if [log_message] =~ /Payment/ {
+            grok {
+              match => { "log_message" => "Payment (?<payment_action>processed|failed|refunded) for amount: (?<payment_amount>[\d.]+)" }
+            }
+          }
+        }
+      }
+      
+      # Filtro para enriquecer logs con geolocalización
+      if [client_ip] {
+        geoip {
+          source => "client_ip"
+          target => "geoip"
+        }
+      }
+      
+      # Filtro para detectar errores críticos
+      if [log_level] == "ERROR" {
+        mutate {
+          add_tag => ["error", "needs_attention"]
+          add_field => { "alert_priority" => "high" }
+        }
+      }
+      
+      # Filtro para performance tracking
+      if [log_message] =~ /execution time/ {
+        grok {
+          match => { "log_message" => "Method execution time: (?<execution_time>\d+)ms" }
+        }
+        
+        if [execution_time] {
+          mutate {
+            convert => { "execution_time" => "integer" }
+          }
+          
+          if [execution_time] > 5000 {
+            mutate {
+              add_tag => ["slow_performance"]
+              add_field => { "alert_priority" => "medium" }
+            }
+          }
+        }
+      }
+      
+      # Añadir timestamps y metadatos
+      mutate {
+        add_field => { "processed_at" => "%{@timestamp}" }
+        add_field => { "log_source" => "ecommerce-microservices" }
+        add_field => { "environment" => "production" }
+      }
+    }
+    
+    output {
+      # Output principal a Elasticsearch
+      elasticsearch {
+        hosts => ["elasticsearch-logging:9200"]
+        index => "ecommerce-logs-%{+YYYY.MM.dd}"
+        template_name => "ecommerce-logs"
+        template => "/usr/share/logstash/templates/ecommerce-template.json"
+        template_overwrite => true
+        
+        # Configuración de rendimiento
+        workers => 4
+        flush_size => 2000
+        idle_flush_time => 10
+      }
+      
+      # Output específico para errores críticos
+      if "error" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-logging:9200"]
+          index => "ecommerce-errors-%{+YYYY.MM.dd}"
+        }
+      }
+      
+      # Output para métricas de negocio
+      if [microservice] and ([order_action] or [payment_action]) {
+        elasticsearch {
+          hosts => ["elasticsearch-logging:9200"]
+          index => "ecommerce-business-events-%{+YYYY.MM.dd}"
+        }
+      }
+      
+      # Output de debug (comentar en producción)
+      # stdout {
+      #   codec => rubydebug
+      # }
+    }
+
+---
+# Service para Logstash
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: monitoring
+  labels:
+    app: logstash
+    component: logging-processor
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5044
+    targetPort: 5044
+    name: beats
+  - port: 9600
+    targetPort: 9600
+    name: http
+  - port: 5000
+    targetPort: 5000
+    name: tcp-input
+  - port: 8080
+    targetPort: 8080
+    name: http-input
+  selector:
+    app: logstash
+
+---
+# ============================================================================
+# KIBANA DEPLOYMENT PARA VISUALIZACIÓN DE LOGS
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: logging-ui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+        component: logging-ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.11.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 5601
+          name: ui
+        env:
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch-logging:9200"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        - name: SERVER_NAME
+          value: "kibana"
+        - name: SERVER_BASEPATH
+          value: "/kibana"
+        - name: SERVER_REWRITEBASEPATH
+          value: "true"
+        - name: XPACK_MONITORING_ENABLED
+          value: "true"
+        - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+          value: "a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+        - name: XPACK_REPORTING_ENCRYPTIONKEY
+          value: "25c4e2f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3"
+        - name: XPACK_SECURITY_ENCRYPTIONKEY
+          value: "b3a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+        livenessProbe:
+          httpGet:
+            path: /kibana/app/kibana
+            port: 5601
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /kibana/app/kibana
+            port: 5601
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "300m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+        volumeMounts:
+        - name: kibana-config
+          mountPath: /usr/share/kibana/config/kibana.yml
+          subPath: kibana.yml
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: kibana-config
+        configMap:
+          name: kibana-config
+      - name: tmp
+        emptyDir: {}
+
+---
+# ConfigMap para Kibana
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: config
+data:
+  kibana.yml: |
+    server.host: 0.0.0.0
+    server.port: 5601
+    server.name: kibana
+    server.basePath: "/kibana"
+    server.rewriteBasePath: true
+    server.publicBaseUrl: "https://monitoring.ecommerce.example.com/kibana"
+    
+    elasticsearch.hosts: ["http://elasticsearch-logging:9200"]
+    elasticsearch.requestTimeout: 60000
+    elasticsearch.shardTimeout: 60000
+    elasticsearch.pingTimeout: 3000
+    
+    # Monitoring
+    monitoring.enabled: true
+    monitoring.kibana.collection.enabled: false
+    
+    # Security configuration
+    xpack.encryptedSavedObjects.encryptionKey: "a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+    xpack.reporting.encryptionKey: "25c4e2f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3c2e4b2e4e2c4f3"
+    xpack.security.encryptionKey: "b3a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+    
+    # Disable security for internal use
+    xpack.security.enabled: false
+    
+    # Performance settings
+    server.maxPayloadBytes: 1048576
+    elasticsearch.requestHeadersWhitelist: ["authorization"]
+    
+    # Logging
+    logging.level: info
+    logging.appenders:
+      default:
+        type: console
+        layout:
+          type: json
+    logging.loggers:
+      - name: elasticsearch.query
+        level: info
+    
+    # Default space settings
+    xpack.spaces.enabled: true
+    xpack.spaces.maxSpaces: 1000
+
+---
+# Service para Kibana
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: logging-ui
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5601
+    targetPort: 5601
+    name: ui
+  selector:
+    app: kibana
+
+---
+# ============================================================================
+# FILEBEAT DAEMONSET PARA RECOLECCIÓN DE LOGS
+# ============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: monitoring
+  labels:
+    app: filebeat
+    component: log-collector
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+        component: log-collector
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:8.11.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add:
+            - SYS_ADMIN
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: LOGSTASH_HOSTS
+          value: "logstash:5044"
+        resources:
+          requests:
+            memory: "200Mi"
+            cpu: "100m"
+          limits:
+            memory: "500Mi"
+            cpu: "300m"
+        volumeMounts:
+        - name: filebeat-config
+          mountPath: /usr/share/filebeat/filebeat.yml
+          subPath: filebeat.yml
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varloglibcontainers
+          mountPath: /var/log/containers
+          readOnly: true
+        - name: varloglibpods
+          mountPath: /var/log/pods
+          readOnly: true
+      volumes:
+      - name: filebeat-config
+        configMap:
+          name: filebeat-config
+          defaultMode: 0600
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varloglibcontainers
+        hostPath:
+          path: /var/log/containers
+      - name: varloglibpods
+        hostPath:
+          path: /var/log/pods
+
+---
+# ConfigMap para Filebeat
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: monitoring
+  labels:
+    app: filebeat
+    component: config
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: container
+      paths:
+        - '/var/log/containers/*.log'
+      processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+          matchers:
+          - logs_path:
+              logs_path: "/var/log/containers/"
+      - decode_json_fields:
+          fields: ["message"]
+          target: ""
+          overwrite_keys: true
+    
+    - type: log
+      paths:
+        - /var/log/pods/*/ecommerce-*/*.log
+      processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+    
+    processors:
+    - add_cloud_metadata:
+        timeout: 3s
+    
+    - add_host_metadata:
+        when.not.contains.tags: forwarded
+    
+    - add_docker_metadata:
+        host: "unix:///var/run/docker.sock"
+    
+    - drop_event:
+        when:
+          equals:
+            kubernetes.container.name: "filebeat"
+    
+    output.logstash:
+      hosts: ["${LOGSTASH_HOSTS}"]
+      compression_level: 3
+      worker: 2
+      bulk_max_size: 2048
+      template.enabled: false
+    
+    logging.level: info
+    logging.metrics.enabled: false
+
+---
+# ServiceAccount para Filebeat
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: monitoring
+  labels:
+    app: filebeat
+    component: service-account
+
+---
+# ClusterRole para Filebeat
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+    component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "namespaces", "events", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding para Filebeat
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+    component: rbac
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: filebeat
+  namespace: monitoring
+
+---
+# ============================================================================
+# INGRESS PARA KIBANA
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana-ingress
+  namespace: monitoring
+  labels:
+    app: kibana
+    component: ingress
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+spec:
+  tls:
+  - hosts:
+    - monitoring.ecommerce.example.com
+    secretName: kibana-tls-secret
+  rules:
+  - host: monitoring.ecommerce.example.com
+    http:
+      paths:
+      - path: /kibana/?(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: kibana
+            port:
+              number: 5601

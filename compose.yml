@@ -65,6 +65,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=api-gateway-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   proxy-client-container:
     image: selimhorri/proxy-client-ecommerce-boot:0.1.0
@@ -83,6 +89,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=proxy-client-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8900/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   order-service-container:
     image: selimhorri/order-service-ecommerce-boot:0.1.0
     ports:
@@ -100,6 +112,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=order-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8300/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   payment-service-container:
     image: selimhorri/payment-service-ecommerce-boot:0.1.0
     ports:
@@ -117,6 +135,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=payment-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8400/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   product-service-container:
     image: selimhorri/product-service-ecommerce-boot:0.1.0
     ports:
@@ -134,6 +158,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=product-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8500/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   shipping-service-container:
     image: selimhorri/shipping-service-ecommerce-boot:0.1.0
     ports:
@@ -151,6 +181,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=shipping-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8600/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   user-service-container:
     image: selimhorri/user-service-ecommerce-boot:0.1.0
     ports:
@@ -168,6 +204,12 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=user-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8700/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   favourite-service-container:
     image: selimhorri/favourite-service-ecommerce-boot:0.1.0
     ports:
@@ -185,3 +227,9 @@ services:
       - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
       - SPRING_CONFIG_IMPORT=optional:configserver:http://cloud-config-container:9296
       - EUREKA_INSTANCE_HOSTNAME=favourite-service-container
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8800/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

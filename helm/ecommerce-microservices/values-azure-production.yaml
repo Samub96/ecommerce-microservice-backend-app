@@ -1,0 +1,622 @@
+# ============================================================================
+# HELM VALUES PARA PRODUCCIÓN EN AZURE KUBERNETES SERVICE (AKS)
+# Azure AKS Production Configuration
+# ============================================================================
+
+# ============================================================================
+# CONFIGURACIÓN GLOBAL DE AZURE
+# ============================================================================
+global:
+  # Configuración de Azure Container Registry
+  imageRegistry: "ecommerceacr.azurecr.io"
+  imagePullSecrets:
+    - azure-container-registry
+  
+  # Configuración de entorno
+  environment: production
+  cloudProvider: azure
+  region: eastus
+  
+  # Configuración de dominio
+  domain: "ecommerce.azure.com"
+  subdomain: "api"
+  
+  # Configuración de Storage Classes específicas para Azure
+  storageClasses:
+    premium: "azure-disk-premium-ssd"
+    standard: "azure-disk-standard-ssd"
+    file: "azure-file-premium"
+  
+  # Configuración de Load Balancer
+  loadBalancer:
+    type: "azure"
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol: "http"
+      service.beta.kubernetes.io/azure-load-balancer-mode: "shared"
+
+# ============================================================================
+# CONFIGURACIÓN DE MICROSERVICIOS
+# ============================================================================
+
+# Service Discovery (Eureka)
+serviceDiscovery:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ecommerceacr.azurecr.io/service-discovery
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8761
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  # Configuraciones específicas para Azure
+  nodeSelector:
+    kubernetes.io/os: linux
+  
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - service-discovery
+          topologyKey: kubernetes.io/hostname
+
+# Cloud Config Server
+cloudConfig:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ecommerceacr.azurecr.io/cloud-config
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8888
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  # Azure Key Vault integration
+  config:
+    keyVaultEnabled: true
+    keyVaultName: "ecommerce-keyvault"
+    secretProvider: azure-keyvault
+
+# API Gateway
+apiGateway:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ecommerceacr.azurecr.io/api-gateway
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: LoadBalancer
+    port: 8080
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/actuator/health"
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-protocol: "http"
+      service.beta.kubernetes.io/azure-load-balancer-mode: "shared"
+  
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+  
+  # Configuración de autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Health checks optimizados para Azure
+  livenessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# User Service
+userService:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ecommerceacr.azurecr.io/user-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8081
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  # Configuración de base de datos
+  database:
+    host: mysql-master
+    port: 3306
+    name: users_db
+    secretName: mysql-secret
+
+# Product Service
+productService:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ecommerceacr.azurecr.io/product-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8082
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# Order Service
+orderService:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ecommerceacr.azurecr.io/order-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8083
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# Payment Service
+paymentService:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ecommerceacr.azurecr.io/payment-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8084
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# Shipping Service
+shippingService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ecommerceacr.azurecr.io/shipping-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8085
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# Favourite Service
+favouriteService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ecommerceacr.azurecr.io/favourite-service
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8086
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# ============================================================================
+# CONFIGURACIÓN DE BASE DE DATOS
+# ============================================================================
+
+mysql:
+  enabled: true
+  architecture: replication
+  
+  # Configuración MySQL Master
+  primary:
+    replicaCount: 1
+    persistence:
+      enabled: true
+      storageClass: "azure-disk-premium-ssd"
+      size: 50Gi
+      accessModes:
+        - ReadWriteOnce
+    
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+    
+    # Configuraciones específicas para Azure
+    nodeSelector:
+      kubernetes.io/os: linux
+      agentpool: default
+    
+    podSecurityContext:
+      fsGroup: 999
+    
+    containerSecurityContext:
+      runAsUser: 999
+      runAsGroup: 999
+      runAsNonRoot: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+  
+  # Configuración MySQL Secondary (Slave)
+  secondary:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      storageClass: "azure-disk-premium-ssd"
+      size: 50Gi
+      accessModes:
+        - ReadWriteOnce
+    
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+  
+  # Configuración de autenticación
+  auth:
+    rootPassword: "SecureRootPassword123!"
+    createDatabase: true
+    database: "ecommerce_db"
+    username: "ecommerce_user"
+    password: "SecureUserPassword123!"
+  
+  # Configuración de backup
+  backup:
+    enabled: true
+    storageClass: "azure-file-premium"
+
+# ============================================================================
+# CONFIGURACIÓN DE REDIS (CACHE)
+# ============================================================================
+
+redis:
+  enabled: true
+  architecture: standalone
+  
+  master:
+    persistence:
+      enabled: true
+      storageClass: "azure-disk-standard-ssd"
+      size: 10Gi
+    
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+  
+  auth:
+    enabled: true
+    password: "SecureRedisPassword123!"
+
+# ============================================================================
+# CONFIGURACIÓN DE INGRESS
+# ============================================================================
+
+ingress:
+  enabled: true
+  className: "nginx"
+  
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    cert-manager.io/cluster-issuer: "letsencrypt-production"
+    # Azure Application Gateway annotations (si se usa AGIC)
+    kubernetes.io/ingress.class: "azure/application-gateway"
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+  
+  hosts:
+    - host: "api.ecommerce.azure.com"
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: api-gateway
+            port: 8080
+  
+  tls:
+    - secretName: ecommerce-tls-secret
+      hosts:
+        - "api.ecommerce.azure.com"
+
+# ============================================================================
+# CONFIGURACIÓN DE MONITOREO
+# ============================================================================
+
+monitoring:
+  enabled: true
+  
+  # Prometheus
+  prometheus:
+    enabled: true
+    retention: "30d"
+    storageClass: "azure-disk-premium-ssd"
+    storage: "50Gi"
+    
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "500m"
+      limits:
+        memory: "4Gi"
+        cpu: "1"
+  
+  # Grafana
+  grafana:
+    enabled: true
+    persistence:
+      enabled: true
+      storageClass: "azure-disk-standard-ssd"
+      size: "10Gi"
+    
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+    
+    # Azure AD integration
+    config:
+      auth.azuread:
+        enabled: true
+        client_id: "YOUR_AZURE_AD_CLIENT_ID"
+        client_secret: "YOUR_AZURE_AD_CLIENT_SECRET"
+        auth_url: "https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/authorize"
+        token_url: "https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/token"
+  
+  # Jaeger (Tracing)
+  jaeger:
+    enabled: true
+    storage:
+      type: "elasticsearch"
+      elasticsearch:
+        host: "elasticsearch"
+        port: 9200
+
+# ============================================================================
+# CONFIGURACIÓN DE AUTOSCALING
+# ============================================================================
+
+autoscaling:
+  # KEDA Configuration
+  keda:
+    enabled: true
+    
+    # Azure Service Bus Scaler para colas
+    serviceBusScaler:
+      enabled: true
+      connectionString: "Endpoint=sb://ecommerce-servicebus.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=YOUR_KEY"
+      queueName: "order-processing"
+      queueLength: 10
+  
+  # Horizontal Pod Autoscaler
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Vertical Pod Autoscaler
+  vpa:
+    enabled: true
+    updateMode: "Auto"
+
+# ============================================================================
+# CONFIGURACIÓN DE SEGURIDAD
+# ============================================================================
+
+security:
+  # Network Policies
+  networkPolicies:
+    enabled: true
+    defaultDeny: true
+    allowedNamespaces:
+      - "ecommerce-production"
+      - "monitoring"
+      - "kube-system"
+  
+  # Pod Security Context
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  
+  # Container Security Context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+      - ALL
+  
+  # Sealed Secrets
+  sealedSecrets:
+    enabled: true
+    controller:
+      create: true
+
+# ============================================================================
+# CONFIGURACIÓN DE BACKUP
+# ============================================================================
+
+backup:
+  # Velero Configuration
+  velero:
+    enabled: true
+    
+    # Azure Backup Configuration
+    provider: azure
+    bucket: "ecommerce-backup-container"
+    storageAccount: "ecommercebackupstorage"
+    resourceGroup: "ecommerce-backup-rg"
+    subscriptionId: "YOUR_SUBSCRIPTION_ID"
+    
+    # Backup Schedule
+    schedules:
+      daily:
+        schedule: "0 2 * * *"
+        template:
+          ttl: "720h"  # 30 days
+          includedNamespaces:
+            - "ecommerce-production"
+            - "monitoring"
+      
+      weekly:
+        schedule: "0 3 * * 0"  # Sunday 3 AM
+        template:
+          ttl: "2160h"  # 90 days
+          includedNamespaces:
+            - "ecommerce-production"
+            - "monitoring"
+
+# ============================================================================
+# CONFIGURACIÓN ESPECÍFICA DE AZURE
+# ============================================================================
+
+azure:
+  # Azure Active Directory Integration
+  aad:
+    enabled: true
+    clientId: "YOUR_AAD_CLIENT_ID"
+    tenantId: "YOUR_AAD_TENANT_ID"
+  
+  # Azure Key Vault
+  keyVault:
+    enabled: true
+    name: "ecommerce-keyvault"
+    secretProvider:
+      enabled: true
+      useVMManagedIdentity: true
+      userAssignedIdentityID: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
+  
+  # Azure Files for shared storage
+  files:
+    enabled: true
+    storageAccount: "ecommercefileshare"
+    shareName: "shared-data"
+  
+  # Azure Monitor Integration
+  monitor:
+    enabled: true
+    workspaceId: "YOUR_LOG_ANALYTICS_WORKSPACE_ID"
+    workspaceKey: "YOUR_LOG_ANALYTICS_WORKSPACE_KEY"
+    
+    # Container Insights
+    containerInsights:
+      enabled: true
+      collectKubeEvents: true
+  
+  # Azure Service Bus for messaging
+  serviceBus:
+    enabled: true
+    namespace: "ecommerce-servicebus"
+    connectionString: "YOUR_SERVICE_BUS_CONNECTION_STRING"

@@ -1,0 +1,72 @@
+apiVersion: policy/v1
+kind: PodSecurityPolicy
+metadata:
+  name: ecommerce-psp
+spec:
+  privileged: false  # No permitir contenedores privilegiados
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'  # Debe ejecutarse como usuario no-root
+  runAsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: false  # Permitir escritura temporal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ecommerce-psp-user
+  namespace: ecommerce-dev
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - ecommerce-psp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecommerce-psp-binding
+  namespace: ecommerce-dev
+roleRef:
+  kind: Role
+  name: ecommerce-psp-user
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: ecommerce-service-account
+  namespace: ecommerce-dev
+- kind: ServiceAccount
+  name: service-discovery-sa
+  namespace: ecommerce-dev
+---
+# Pod Security Standards (para Kubernetes 1.23+)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce-prod
+  labels:
+    name: ecommerce-prod
+    environment: production
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

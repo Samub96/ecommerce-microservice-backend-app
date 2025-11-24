@@ -1,0 +1,218 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ecommerce-network-policy
+  namespace: ecommerce-dev
+spec:
+  podSelector: {}  # Aplica a todos los pods en el namespace
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico interno entre microservicios
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ecommerce-dev
+  # Permitir tráfico desde Ingress Controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  # Permitir tráfico desde Prometheus/Grafana para métricas
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  # Permitir tráfico DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Permitir tráfico interno entre microservicios
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: ecommerce-dev
+  # Permitir tráfico hacia servicios externos (APIs, bases de datos)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+    - protocol: TCP
+      port: 80   # HTTP
+    - protocol: TCP
+      port: 5432 # PostgreSQL
+    - protocol: TCP
+      port: 3306 # MySQL
+    - protocol: TCP
+      port: 6379 # Redis
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zipkin-network-policy
+  namespace: ecommerce-dev
+spec:
+  podSelector:
+    matchLabels:
+      app: zipkin
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir conexiones desde todos los microservicios para tracing
+  - from:
+    - podSelector:
+        matchLabels:
+          component: microservice
+  - from:
+    - podSelector:
+        matchLabels:
+          component: gateway
+  - from:
+    - podSelector:
+        matchLabels:
+          component: discovery
+  - from:
+    - podSelector:
+        matchLabels:
+          component: config
+  # Permitir acceso desde Ingress para UI
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 9411
+  egress:
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: service-discovery-network-policy
+  namespace: ecommerce-dev
+spec:
+  podSelector:
+    matchLabels:
+      app: service-discovery
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir registro de servicios desde todos los microservicios
+  - from:
+    - podSelector:
+        matchLabels:
+          component: microservice
+  - from:
+    - podSelector:
+        matchLabels:
+          component: gateway
+  - from:
+    - podSelector:
+        matchLabels:
+          component: config
+  # Permitir acceso desde Ingress para UI de Eureka
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8761
+  egress:
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Permitir comunicación con Zipkin
+  - to:
+    - podSelector:
+        matchLabels:
+          app: zipkin
+    ports:
+    - protocol: TCP
+      port: 9411
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-network-policy
+  namespace: ecommerce-dev
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico desde Ingress Controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Permitir health checks desde Kubernetes
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Permitir comunicación con todos los microservicios
+  - to:
+    - podSelector:
+        matchLabels:
+          component: microservice
+  # Permitir comunicación con Service Discovery
+  - to:
+    - podSelector:
+        matchLabels:
+          app: service-discovery
+    ports:
+    - protocol: TCP
+      port: 8761
+  # Permitir comunicación con Cloud Config
+  - to:
+    - podSelector:
+        matchLabels:
+          app: cloud-config
+    ports:
+    - protocol: TCP
+      port: 9296
+  # Permitir comunicación con Zipkin
+  - to:
+    - podSelector:
+        matchLabels:
+          app: zipkin
+    ports:
+    - protocol: TCP
+      port: 9411

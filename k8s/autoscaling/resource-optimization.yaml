@@ -1,0 +1,790 @@
+# ============================================================================
+# RESOURCE OPTIMIZATION CONFIGURATIONS
+# CONFIGURACIÓN OPTIMIZADA DE REQUESTS Y LIMITS PARA MICROSERVICIOS
+# ============================================================================
+
+# ============================================================================
+# LIMITRANGE PARA NAMESPACE DEFAULT
+# ============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ecommerce-resource-limits
+  namespace: default
+  labels:
+    app: ecommerce
+    component: resource-management
+spec:
+  limits:
+  # Límites para Pods
+  - type: Pod
+    max:
+      cpu: "8"
+      memory: 16Gi
+      ephemeral-storage: 20Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+      ephemeral-storage: 1Gi
+  
+  # Límites para Containers
+  - type: Container
+    max:
+      cpu: "4"
+      memory: 8Gi
+      ephemeral-storage: 10Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+      ephemeral-storage: 512Mi
+    default:
+      cpu: 200m
+      memory: 256Mi
+      ephemeral-storage: 1Gi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 512Mi
+  
+  # Límites para PersistentVolumeClaims
+  - type: PersistentVolumeClaim
+    max:
+      storage: 100Gi
+    min:
+      storage: 1Gi
+
+---
+# ============================================================================
+# RESOURCEQUOTA PARA NAMESPACE DEFAULT
+# ============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ecommerce-resource-quota
+  namespace: default
+  labels:
+    app: ecommerce
+    component: resource-management
+spec:
+  hard:
+    # Compute Resources
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "50"
+    limits.memory: 100Gi
+    
+    # Storage Resources
+    requests.storage: 500Gi
+    persistentvolumeclaims: "20"
+    
+    # Object Counts
+    pods: "50"
+    services: "20"
+    secrets: "30"
+    configmaps: "30"
+    replicationcontrollers: "0"
+    deployments.apps: "15"
+    statefulsets.apps: "10"
+    jobs.batch: "10"
+    cronjobs.batch: "5"
+    
+    # Network Resources
+    services.nodeports: "5"
+    services.loadbalancers: "3"
+
+---
+# ============================================================================
+# PRIORITY CLASSES PARA WORKLOADS
+# ============================================================================
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ecommerce-critical
+  labels:
+    app: ecommerce
+    component: priority-management
+value: 1000000
+globalDefault: false
+description: "Priority class for critical ecommerce services (payment, order)"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ecommerce-high
+  labels:
+    app: ecommerce
+    component: priority-management
+value: 100000
+globalDefault: false
+description: "Priority class for high priority ecommerce services (user, product)"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ecommerce-normal
+  labels:
+    app: ecommerce
+    component: priority-management
+value: 10000
+globalDefault: true
+description: "Priority class for normal ecommerce services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ecommerce-low
+  labels:
+    app: ecommerce
+    component: priority-management
+value: 1000
+globalDefault: false
+description: "Priority class for low priority services (batch jobs, analytics)"
+
+---
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - USER-SERVICE
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service-optimized
+  namespace: default
+  labels:
+    app: user-service
+    version: optimized
+    tier: microservice
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: user-service
+      version: optimized
+  template:
+    metadata:
+      labels:
+        app: user-service
+        version: optimized
+        tier: microservice
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      priorityClassName: ecommerce-high
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      serviceAccountName: user-service-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: user-service
+        image: user-service:optimized
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8081
+          name: management
+          protocol: TCP
+        env:
+        # JVM Optimization
+        - name: JAVA_OPTS
+          value: >-
+            -XX:+UseContainerSupport
+            -XX:MaxRAMPercentage=75.0
+            -XX:+UseG1GC
+            -XX:+UseStringDeduplication
+            -XX:+OptimizeStringConcat
+            -XX:+UseCompressedOops
+            -Djava.security.egd=file:/dev/./urandom
+            -Dspring.backgroundpreinitializer.ignore=true
+        # Application Settings
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production,metrics,optimized"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: MANAGEMENT_SERVER_PORT
+          value: "8081"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+          value: "health,metrics,prometheus,info"
+        # Database Connection Pool
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: "20"
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          value: "5"
+        - name: SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT
+          value: "30000"
+        - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
+          value: "600000"
+        - name: SPRING_DATASOURCE_HIKARI_MAX_LIFETIME
+          value: "1800000"
+        # Cache Configuration
+        - name: SPRING_CACHE_TYPE
+          value: "redis"
+        - name: SPRING_REDIS_TIMEOUT
+          value: "2000ms"
+        - name: SPRING_REDIS_JEDIS_POOL_MAX_ACTIVE
+          value: "20"
+        - name: SPRING_REDIS_JEDIS_POOL_MAX_IDLE
+          value: "10"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+            ephemeral-storage: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 20
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-logs
+          mountPath: /app/logs
+      # Sidecar para log collection
+      - name: fluentbit
+        image: fluent/fluent-bit:2.2.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: app-logs
+          mountPath: /app/logs
+          readOnly: true
+        - name: fluentbit-config
+          mountPath: /fluent-bit/etc
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-logs
+        emptyDir: {}
+      - name: fluentbit-config
+        configMap:
+          name: fluentbit-config
+      # Node Affinity para optimizar placement
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - general
+                - cpu-optimized
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: user-service
+              topologyKey: kubernetes.io/hostname
+      # Tolerations para nodos especializados
+      tolerations:
+      - key: workload
+        operator: Equal
+        value: cpu-intensive
+        effect: NoSchedule
+      - key: node-type
+        operator: Equal
+        value: spot
+        effect: NoSchedule
+        tolerationSeconds: 300
+
+---
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - ORDER-SERVICE (CRITICAL)
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-optimized
+  namespace: default
+  labels:
+    app: order-service
+    version: optimized
+    tier: microservice
+    criticality: high
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  selector:
+    matchLabels:
+      app: order-service
+      version: optimized
+  template:
+    metadata:
+      labels:
+        app: order-service
+        version: optimized
+        tier: microservice
+        criticality: high
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      priorityClassName: ecommerce-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      serviceAccountName: order-service-sa
+      terminationGracePeriodSeconds: 45
+      containers:
+      - name: order-service
+        image: order-service:optimized
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8081
+          name: management
+        env:
+        # JVM Optimization para workload crítico
+        - name: JAVA_OPTS
+          value: >-
+            -XX:+UseContainerSupport
+            -XX:MaxRAMPercentage=70.0
+            -XX:+UseG1GC
+            -XX:MaxGCPauseMillis=100
+            -XX:+UseStringDeduplication
+            -XX:+UseLargePages
+            -XX:+AlwaysPreTouch
+            -Djava.security.egd=file:/dev/./urandom
+            -Dspring.jmx.enabled=false
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production,metrics,optimized,critical"
+        # Database optimization
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: "30"
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          value: "10"
+        - name: SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT
+          value: "20000"
+        - name: SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT
+          value: "5000"
+        # Circuit Breaker settings
+        - name: RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_FAILURE_RATE_THRESHOLD
+          value: "20"
+        - name: RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_SLOW_CALL_RATE_THRESHOLD
+          value: "30"
+        - name: RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_SLOW_CALL_DURATION_THRESHOLD
+          value: "2s"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+          initialDelaySeconds: 90
+          periodSeconds: 20
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 45
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        startupProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 3
+          timeoutSeconds: 2
+          failureThreshold: 30
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-logs
+          mountPath: /app/logs
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-logs
+        emptyDir: {}
+      # Strict node affinity para servicios críticos
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-lifecycle
+                operator: NotIn
+                values:
+                - spot
+              - key: workload-type
+                operator: In
+                values:
+                - general
+                - performance
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: order-service
+            topologyKey: kubernetes.io/hostname
+      # No tolerations para spots en servicios críticos
+      tolerations: []
+
+---
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - PAYMENT-SERVICE (CRITICAL)
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-optimized
+  namespace: default
+  labels:
+    app: payment-service
+    version: optimized
+    tier: microservice
+    criticality: critical
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: payment-service
+      version: optimized
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        version: optimized
+        tier: microservice
+        criticality: critical
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      priorityClassName: ecommerce-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: payment-service-sa
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: payment-service
+        image: payment-service:optimized
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8081
+          name: management
+        env:
+        # JVM optimizada para transacciones financieras
+        - name: JAVA_OPTS
+          value: >-
+            -XX:+UseContainerSupport
+            -XX:MaxRAMPercentage=65.0
+            -XX:+UseG1GC
+            -XX:MaxGCPauseMillis=50
+            -XX:+UseStringDeduplication
+            -XX:+UseLargePages
+            -XX:+AlwaysPreTouch
+            -XX:+EnableJVMCI
+            -Djava.security.egd=file:/dev/./urandom
+            -Dspring.jmx.enabled=false
+            -Djava.awt.headless=true
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production,metrics,optimized,secure,financial"
+        # Database settings para transacciones
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: "25"
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          value: "10"
+        - name: SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT
+          value: "15000"
+        - name: SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT
+          value: "3000"
+        - name: SPRING_DATASOURCE_HIKARI_AUTO_COMMIT
+          value: "false"
+        # Transaction management
+        - name: SPRING_TRANSACTION_DEFAULT_TIMEOUT
+          value: "30"
+        - name: SPRING_TRANSACTION_ROLLBACK_ON_COMMIT_FAILURE
+          value: "true"
+        # Security settings
+        - name: SPRING_SECURITY_REQUIRE_SSL
+          value: "true"
+        - name: SERVER_SSL_ENABLED
+          value: "true"
+        resources:
+          requests:
+            cpu: 300m
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: 1500m
+            memory: 3Gi
+            ephemeral-storage: 3Gi
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+            scheme: HTTPS
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+            scheme: HTTPS
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2
+        startupProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+            scheme: HTTPS
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 40
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-logs
+          mountPath: /app/logs
+        - name: ssl-certs
+          mountPath: /app/ssl
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-logs
+        emptyDir: {}
+      - name: ssl-certs
+        secret:
+          secretName: payment-service-ssl-certs
+      # Strict requirements para servicios financieros
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-lifecycle
+                operator: In
+                values:
+                - on-demand
+              - key: workload-type
+                operator: In
+                values:
+                - performance
+                - secure
+              - key: zone
+                operator: In
+                values:
+                - us-east-1a
+                - us-east-1b
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: payment-service
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                app: payment-service
+            topologyKey: topology.kubernetes.io/zone
+      # Sin tolerations para máxima estabilidad
+      tolerations: []
+
+---
+# ============================================================================
+# CONFIGMAP PARA FLUENTBIT LOG COLLECTION
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentbit-config
+  namespace: default
+  labels:
+    app: fluentbit
+    component: logging
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Log_Level     info
+        Daemon        off
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+    
+    [INPUT]
+        Name              tail
+        Path              /app/logs/*.log
+        Parser            spring_boot
+        Tag               app.*
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+    
+    [OUTPUT]
+        Name  forward
+        Match *
+        Host  logstash.monitoring.svc.cluster.local
+        Port  24224
+        Retry_Limit 5
+  
+  parsers.conf: |
+    [PARSER]
+        Name        spring_boot
+        Format      regex
+        Regex       ^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<level>\w+)\s+\[(?<service>.*?),(?<trace>.*?),(?<span>.*?),(?<export>.*?)\]\s+(?<pid>\d+)\s+---\s+\[(?<thread>.*?)\]\s+(?<logger>\S+)\s*:\s*(?<message>.*)
+        Time_Key    timestamp
+        Time_Format %Y-%m-%d %H:%M:%S.%L
+
+---
+# ============================================================================
+# PODDISRUPTIONBUDGET PARA SERVICIOS CRÍTICOS
+# ============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-service-pdb
+  namespace: default
+  labels:
+    app: order-service
+    component: availability
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: order-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-service-pdb
+  namespace: default
+  labels:
+    app: payment-service
+    component: availability
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: payment-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-service-pdb
+  namespace: default
+  labels:
+    app: user-service
+    component: availability
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: user-service

@@ -1,0 +1,372 @@
+# ============================================================================
+# BACKUP SCHEDULES - PROGRAMACIÓN AUTOMÁTICA DE BACKUPS
+# ============================================================================
+
+# Backup completo diario del namespace de ecommerce
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: ecommerce-daily-backup
+  namespace: velero-system
+  labels:
+    app: velero
+    component: scheduled-backup
+    backup-type: daily
+spec:
+  schedule: "0 2 * * *"  # Todos los días a las 2 AM
+  template:
+    metadata:
+      name: "ecommerce-daily-{{ .Date }}"
+      labels:
+        backup-type: daily
+        environment: production
+        application: ecommerce
+    spec:
+      # Incluir namespaces específicos
+      includedNamespaces:
+      - ecommerce-production
+      - ecommerce-staging
+      
+      # Incluir recursos críticos
+      includedResources:
+      - persistentvolumes
+      - persistentvolumeclaims
+      - secrets
+      - configmaps
+      - deployments
+      - services
+      - ingresses
+      - statefulsets
+      - jobs
+      - cronjobs
+      
+      # Excluir recursos no críticos
+      excludedResources:
+      - events
+      - pods
+      - replicasets
+      - endpoints
+      
+      # Configuración de volumes
+      defaultVolumesToFsBackup: true
+      
+      # Hooks para backup consistente de bases de datos
+      hooks:
+        resources:
+        - name: mysql-backup-hook
+          includedNamespaces:
+          - ecommerce-production
+          - ecommerce-staging
+          includedResources:
+          - pods
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: mysql
+          pre:
+          - exec:
+              command:
+              - /bin/bash
+              - -c
+              - |
+                echo "🗄️ Starting MySQL backup preparation..."
+                # Flush tables and get read lock
+                mysql -u root -p$MYSQL_ROOT_PASSWORD -e "FLUSH TABLES WITH READ LOCK;"
+                echo "✅ MySQL tables locked for consistent backup"
+              container: mysql
+              onError: Fail
+              timeout: 60s
+          post:
+          - exec:
+              command:
+              - /bin/bash
+              - -c
+              - |
+                echo "🔓 Releasing MySQL read lock..."
+                mysql -u root -p$MYSQL_ROOT_PASSWORD -e "UNLOCK TABLES;"
+                echo "✅ MySQL backup preparation completed"
+              container: mysql
+              onError: Continue
+              timeout: 30s
+        
+        - name: redis-backup-hook
+          includedNamespaces:
+          - ecommerce-production
+          - ecommerce-staging
+          includedResources:
+          - pods
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+          pre:
+          - exec:
+              command:
+              - /bin/bash
+              - -c
+              - |
+                echo "🔄 Starting Redis backup preparation..."
+                redis-cli BGSAVE
+                echo "✅ Redis background save initiated"
+              container: redis
+              onError: Continue
+              timeout: 30s
+      
+      # Configuración de TTL y storage
+      ttl: 720h  # 30 días
+      storageLocation: default
+      volumeSnapshotLocations:
+      - default
+      
+      # Configuración de snapshot
+      snapshotVolumes: true
+      includeClusterResources: true
+      
+      # Configuración de ordering
+      orderedResources:
+        persistentvolumes: persistentvolumeclaims,secrets,configmaps
+        secrets: deployments,statefulsets
+        configmaps: deployments,statefulsets
+
+---
+# Backup semanal completo con retención extendida
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: ecommerce-weekly-full-backup
+  namespace: velero-system
+  labels:
+    app: velero
+    component: scheduled-backup
+    backup-type: weekly
+spec:
+  schedule: "0 1 * * 0"  # Domingos a la 1 AM
+  template:
+    metadata:
+      name: "ecommerce-weekly-{{ .Date }}"
+      labels:
+        backup-type: weekly
+        environment: production
+        application: ecommerce
+        retention: long-term
+    spec:
+      # Backup completo de todo el cluster
+      includedNamespaces: []  # Todos los namespaces
+      
+      # Excluir solo namespaces de sistema no críticos
+      excludedNamespaces:
+      - kube-node-lease
+      - kube-public
+      
+      # Incluir todos los recursos críticos
+      includedResources: []  # Todos los recursos
+      
+      # Excluir recursos temporales
+      excludedResources:
+      - events
+      - pods
+      - replicasets
+      - endpoints
+      - endpointslices
+      
+      # Configuración de volumes
+      defaultVolumesToFsBackup: true
+      snapshotVolumes: true
+      includeClusterResources: true
+      
+      # TTL extendido para backups semanales
+      ttl: 2160h  # 90 días
+      storageLocation: default
+      volumeSnapshotLocations:
+      - default
+      
+      # Hooks más completos para backup semanal
+      hooks:
+        resources:
+        - name: pre-backup-validation
+          includedNamespaces:
+          - ecommerce-production
+          includedResources:
+          - pods
+          pre:
+          - exec:
+              command:
+              - /bin/bash
+              - -c
+              - |
+                echo "🔍 Pre-backup validation starting..."
+                echo "Timestamp: $(date)"
+                echo "Namespace: $VELERO_NAMESPACE"
+                echo "Pod: $HOSTNAME"
+                df -h
+                echo "✅ Pre-backup validation completed"
+              onError: Continue
+              timeout: 60s
+
+---
+# Backup incremental cada 6 horas
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: ecommerce-incremental-backup
+  namespace: velero-system
+  labels:
+    app: velero
+    component: scheduled-backup
+    backup-type: incremental
+spec:
+  schedule: "0 */6 * * *"  # Cada 6 horas
+  template:
+    metadata:
+      name: "ecommerce-incremental-{{ .Date }}"
+      labels:
+        backup-type: incremental
+        environment: production
+        application: ecommerce
+    spec:
+      # Solo namespaces de aplicación para backups incrementales
+      includedNamespaces:
+      - ecommerce-production
+      
+      # Solo recursos que cambian frecuentemente
+      includedResources:
+      - configmaps
+      - secrets
+      - deployments
+      - services
+      - jobs
+      - cronjobs
+      
+      # Configuración ligera para backups incrementales
+      defaultVolumesToFsBackup: false
+      snapshotVolumes: false
+      includeClusterResources: false
+      
+      # TTL más corto para backups incrementales
+      ttl: 168h  # 7 días
+      storageLocation: default
+      
+      # Label selector para cambios recientes
+      labelSelector:
+        matchExpressions:
+        - key: backup.kubernetes.io/exclude
+          operator: NotIn
+          values: ["true"]
+
+---
+# Backup de configuración crítica (secrets, configmaps)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: ecommerce-config-backup
+  namespace: velero-system
+  labels:
+    app: velero
+    component: scheduled-backup
+    backup-type: configuration
+spec:
+  schedule: "*/30 * * * *"  # Cada 30 minutos
+  template:
+    metadata:
+      name: "ecommerce-config-{{ .Date }}"
+      labels:
+        backup-type: configuration
+        environment: production
+        application: ecommerce
+    spec:
+      # Todos los namespaces para configuración
+      includedNamespaces:
+      - ecommerce-production
+      - ecommerce-staging
+      - velero-system
+      - cert-manager
+      - ingress-nginx
+      - sealed-secrets
+      
+      # Solo recursos de configuración
+      includedResources:
+      - secrets
+      - configmaps
+      - certificates
+      - issuers
+      - clusterissuers
+      - sealedsecrets
+      
+      # Sin volumes para backups de configuración
+      defaultVolumesToFsBackup: false
+      snapshotVolumes: false
+      includeClusterResources: true
+      
+      # TTL corto para configuración (rotación rápida)
+      ttl: 72h  # 3 días
+      storageLocation: default
+
+---
+# Backup pre-deployment para rollback rápido
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: ecommerce-pre-deployment-backup
+  namespace: velero-system
+  labels:
+    app: velero
+    component: scheduled-backup
+    backup-type: pre-deployment
+spec:
+  schedule: "0 */2 * * *"  # Cada 2 horas (antes de posibles deployments)
+  template:
+    metadata:
+      name: "ecommerce-pre-deploy-{{ .Date }}"
+      labels:
+        backup-type: pre-deployment
+        environment: production
+        application: ecommerce
+        purpose: rollback
+    spec:
+      # Solo production para pre-deployment
+      includedNamespaces:
+      - ecommerce-production
+      
+      # Recursos críticos para rollback
+      includedResources:
+      - deployments
+      - statefulsets
+      - services
+      - ingresses
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+      
+      # Configuración optimizada para rollback rápido
+      defaultVolumesToFsBackup: true
+      snapshotVolumes: true
+      includeClusterResources: false
+      
+      # TTL optimizado para rollbacks (1 semana)
+      ttl: 168h  # 7 días
+      storageLocation: default
+      volumeSnapshotLocations:
+      - default
+      
+      # Hooks para estado consistente antes del deployment
+      hooks:
+        resources:
+        - name: pre-deployment-state
+          includedNamespaces:
+          - ecommerce-production
+          includedResources:
+          - pods
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: ecommerce-platform
+          pre:
+          - exec:
+              command:
+              - /bin/bash
+              - -c
+              - |
+                echo "📸 Capturing pre-deployment state..."
+                echo "Current deployment version: $(env | grep VERSION || echo 'unknown')"
+                echo "Pod restart count: $(cat /proc/1/stat | cut -d' ' -f22 || echo 'unknown')"
+                echo "Available memory: $(cat /proc/meminfo | grep MemAvailable || echo 'unknown')"
+                echo "✅ Pre-deployment state captured"
+              onError: Continue
+              timeout: 30s

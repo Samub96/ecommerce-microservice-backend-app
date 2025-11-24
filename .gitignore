@@ -31,3 +31,57 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Security - AWS Credentials and secrets ###
+aws-credentials.txt
+aws-credentials
+.aws/
+*.pem
+*.p12
+*.pfx
+*.key
+*-key.pem
+*-cert.pem
+ca-cert.pem
+
+### Kubernetes secrets ###
+secrets/
+secret-*
+*.secret
+kubeconfig
+.kube/config
+
+### Environment variables ###
+.env
+.env.local
+.env.production
+.env.staging
+
+### Terraform ###
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+.terraform.lock.hcl
+
+### Temporary files ###
+*.tmp
+*.temp
+/tmp/
+temp/
+
+### Backup files ###
+*.bak
+*.backup
+*~
+
+### Logs ###
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+### Validation reports ###
+validation-report-*.log
+VALIDATION_REPORT_*.md

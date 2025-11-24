@@ -1,0 +1,287 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: ecommerce-dev
+  labels:
+    app: payment-service
+    component: microservice
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        component: microservice
+    spec:
+      containers:
+      - name: payment-service
+        image: selimhorri/payment-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8400
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: payment-service-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8400
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8400
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipping-service
+  namespace: ecommerce-dev
+  labels:
+    app: shipping-service
+    component: microservice
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: shipping-service
+  template:
+    metadata:
+      labels:
+        app: shipping-service
+        component: microservice
+    spec:
+      containers:
+      - name: shipping-service
+        image: selimhorri/shipping-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8600
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: shipping-service-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8600
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8600
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: favourite-service
+  namespace: ecommerce-dev
+  labels:
+    app: favourite-service
+    component: microservice
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: favourite-service
+  template:
+    metadata:
+      labels:
+        app: favourite-service
+        component: microservice
+    spec:
+      containers:
+      - name: favourite-service
+        image: selimhorri/favourite-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8800
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: favourite-service-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8800
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8800
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-client
+  namespace: ecommerce-dev
+  labels:
+    app: proxy-client
+    component: microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy-client
+  template:
+    metadata:
+      labels:
+        app: proxy-client
+        component: microservice
+    spec:
+      containers:
+      - name: proxy-client
+        image: selimhorri/proxy-client-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8900
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: proxy-client-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8900
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8900
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+      imagePullSecrets:
+      - name: docker-registry-secret
