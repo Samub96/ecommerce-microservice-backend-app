@@ -1,4 +1,3 @@
-
 name: Prod, on PUSH Java CI/CD of api-gateway-ecommerce-boot, ecommerce-microservice-backend app
 
 on:
@@ -16,6 +15,8 @@ jobs:
       with:
         java-version: '11'
         distribution: 'adopt'
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
     - name: clean packajes with Maven
       run: mvn clean package -DskipTests
     - name: Setup env variables for Docker
@@ -29,5 +30,3 @@ jobs:
       run: docker build -f api-gateway/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/api-gateway-ecommerce-boot:${{ secrets.PROJECT_VERSION }} .
     - name: Push api-gateway-ecommerce-boot image
       run: docker push ${{ secrets.DOCKER_USERNAME }}/api-gateway-ecommerce-boot:${{ secrets.PROJECT_VERSION }}
-
-
