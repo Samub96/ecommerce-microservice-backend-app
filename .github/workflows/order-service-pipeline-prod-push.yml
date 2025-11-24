@@ -18,6 +18,8 @@ jobs:
         distribution: 'adopt'
     - name: Build with Maven
       run: mvn -B package --file pom.xml
+    - name: clean packajes with Maven
+      run: mvn clean package -DskipTests
     - name: Setup env variables for Docker
       run: echo Setup env variables for Docker
       env:
