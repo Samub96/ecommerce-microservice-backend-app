@@ -2,6 +2,13 @@
 server:
   port: 9296
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://service-discovery-container:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+
 spring:
   zipkin:
     base-url: ${SPRING_ZIPKIN_BASE_URL:http://localhost:9411/}
@@ -11,7 +18,7 @@ spring:
     config:
       server:
         git:
-          uri: https://github.com/SelimHorri/cloud-config-server
+          uri: https://github.com/Samub96/cloud-config-server
           clone-on-start: true
 
 resilience4j:

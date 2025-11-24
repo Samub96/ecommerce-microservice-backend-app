@@ -10,3 +10,4 @@ EXPOSE 8761
 ENTRYPOINT ["java", "-Dspring.profiles.active=${SPRING_PROFILES_ACTIVE}", "-jar", "service-discovery.jar"]
 
 
+
