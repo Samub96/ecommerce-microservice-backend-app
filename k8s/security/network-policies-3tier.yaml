@@ -1,0 +1,432 @@
+# NETWORK POLICIES SIGUIENDO PATRÓN 3-TIER ARQUITECTÓNICO
+# Separación en capas: Web Layer, Application Layer, Data Layer
+
+---
+# DENY ALL - Base restrictiva para todos los pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-default
+  namespace: ecommerce-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  # No rules = deny all traffic by default
+
+---
+# WEB LAYER - API Gateway e Ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-layer-policy
+  namespace: ecommerce-dev
+  labels:
+    arch-tier: web
+spec:
+  podSelector:
+    matchLabels:
+      arch-tier: web
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico desde Ingress Controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Permitir tráfico externo directo (NodePort)
+  - from: []  # Desde cualquier origen
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Permitir comunicación hacia Application Layer
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 8700  # user-service
+    - protocol: TCP
+      port: 8500  # product-service
+    - protocol: TCP
+      port: 8300  # order-service
+    - protocol: TCP
+      port: 8400  # payment-service
+    - protocol: TCP
+      port: 8600  # shipping-service
+    - protocol: TCP
+      port: 8800  # favourite-service
+  # Permitir comunicación hacia Infrastructure Layer
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: infrastructure
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka
+    - protocol: TCP
+      port: 9296  # config-server
+  # Permitir comunicación hacia Monitoring Layer
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: monitoring
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# APPLICATION LAYER - Microservicios de negocio
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: application-layer-policy
+  namespace: ecommerce-dev
+  labels:
+    arch-tier: application
+spec:
+  podSelector:
+    matchLabels:
+      arch-tier: application
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico desde Web Layer (API Gateway)
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: web
+    ports:
+    - protocol: TCP
+      port: 8700  # user-service
+    - protocol: TCP
+      port: 8500  # product-service
+    - protocol: TCP
+      port: 8300  # order-service
+    - protocol: TCP
+      port: 8400  # payment-service
+    - protocol: TCP
+      port: 8600  # shipping-service
+    - protocol: TCP
+      port: 8800  # favourite-service
+  # Permitir comunicación entre microservicios (inter-service)
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 8700  # user-service
+    - protocol: TCP
+      port: 8500  # product-service
+    - protocol: TCP
+      port: 8300  # order-service
+    - protocol: TCP
+      port: 8400  # payment-service
+    - protocol: TCP
+      port: 8600  # shipping-service
+    - protocol: TCP
+      port: 8800  # favourite-service
+    - protocol: TCP
+      port: 8900  # proxy-client
+  # Permitir acceso desde Monitoring para métricas
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: monitoring
+    ports:
+    - protocol: TCP
+      port: 8700  # actuator endpoints
+    - protocol: TCP
+      port: 8500
+    - protocol: TCP
+      port: 8300
+    - protocol: TCP
+      port: 8400
+    - protocol: TCP
+      port: 8600
+    - protocol: TCP
+      port: 8800
+  egress:
+  # Permitir comunicación hacia Infrastructure Layer
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: infrastructure
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka registration
+    - protocol: TCP
+      port: 9296  # config-server
+  # Permitir comunicación hacia Monitoring Layer
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: monitoring
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin tracing
+  # Permitir comunicación entre microservicios
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 8700
+    - protocol: TCP
+      port: 8500
+    - protocol: TCP
+      port: 8300
+    - protocol: TCP
+      port: 8400
+    - protocol: TCP
+      port: 8600
+    - protocol: TCP
+      port: 8800
+    - protocol: TCP
+      port: 8900
+  # Permitir acceso hacia Data Layer (futuras bases de datos)
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: data
+    ports:
+    - protocol: TCP
+      port: 3306  # MySQL
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 27017 # MongoDB
+    - protocol: TCP
+      port: 6379  # Redis
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# INFRASTRUCTURE LAYER - Service Discovery, Config Server
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: infrastructure-layer-policy
+  namespace: ecommerce-dev
+  labels:
+    arch-tier: infrastructure
+spec:
+  podSelector:
+    matchLabels:
+      arch-tier: infrastructure
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico desde Web Layer
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: web
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka
+    - protocol: TCP
+      port: 9296  # config-server
+  # Permitir tráfico desde Application Layer
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka registration
+    - protocol: TCP
+      port: 9296  # config fetch
+  # Permitir acceso externo para administración (NodePort)
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka dashboard
+    - protocol: TCP
+      port: 9296  # config server
+  # Permitir monitoreo
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: monitoring
+    ports:
+    - protocol: TCP
+      port: 8761
+    - protocol: TCP
+      port: 9296
+  egress:
+  # Permitir comunicación hacia Monitoring
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: monitoring
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin tracing
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# MONITORING LAYER - Zipkin, Prometheus, Grafana
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-layer-policy
+  namespace: ecommerce-dev
+  labels:
+    arch-tier: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      arch-tier: monitoring
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Permitir tráfico desde todas las capas para métricas
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: web
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin traces
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: infrastructure
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin traces
+  # Permitir acceso externo para dashboards
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 9411  # zipkin UI
+    - protocol: TCP
+      port: 9090  # prometheus
+    - protocol: TCP
+      port: 3000  # grafana
+  egress:
+  # Permitir scraping de métricas de todas las capas
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: web
+    ports:
+    - protocol: TCP
+      port: 8080  # actuator/prometheus
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 8700  # actuator endpoints
+    - protocol: TCP
+      port: 8500
+    - protocol: TCP
+      port: 8300
+    - protocol: TCP
+      port: 8400
+    - protocol: TCP
+      port: 8600
+    - protocol: TCP
+      port: 8800
+  - to:
+    - podSelector:
+        matchLabels:
+          arch-tier: infrastructure
+    ports:
+    - protocol: TCP
+      port: 8761  # eureka metrics
+    - protocol: TCP
+      port: 9296  # config-server metrics
+  # Permitir DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# DATA LAYER - Bases de datos (para futuras implementaciones)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-layer-policy
+  namespace: ecommerce-dev
+  labels:
+    arch-tier: data
+spec:
+  podSelector:
+    matchLabels:
+      arch-tier: data
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Solo permitir tráfico desde Application Layer
+  - from:
+    - podSelector:
+        matchLabels:
+          arch-tier: application
+    ports:
+    - protocol: TCP
+      port: 3306  # MySQL
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 27017 # MongoDB
+    - protocol: TCP
+      port: 6379  # Redis
+  egress:
+  # Permitir DNS para resolución de nombres
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53

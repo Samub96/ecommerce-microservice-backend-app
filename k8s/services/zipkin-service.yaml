@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zipkin-service
+  namespace: ecommerce-dev
+  labels:
+    app: zipkin
+    component: tracing
+spec:
+  selector:
+    app: zipkin
+  ports:
+  - name: http
+    port: 9411
+    targetPort: 9411
+    protocol: TCP
+  type: ClusterIP
+---
+# LoadBalancer service para acceso externo (opcional)
+apiVersion: v1
+kind: Service
+metadata:
+  name: zipkin-external
+  namespace: ecommerce-dev
+  labels:
+    app: zipkin
+    component: tracing
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+spec:
+  selector:
+    app: zipkin
+  ports:
+  - name: http
+    port: 9411
+    targetPort: 9411
+    protocol: TCP
+  type: LoadBalancer

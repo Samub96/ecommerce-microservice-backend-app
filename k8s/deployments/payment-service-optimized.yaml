@@ -1,0 +1,279 @@
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - PAYMENT SERVICE (CRITICAL WORKLOAD)
+# Configurado para heavy-nodes con alta disponibilidad
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: ecommerce-dev
+  labels:
+    app: payment-service
+    component: microservice
+        arch-tier: application
+    tier: critical
+    workload-type: heavy
+spec:
+  replicas: 3  # Increased for critical service
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        component: microservice
+        arch-tier: application
+        tier: critical
+        workload-type: heavy
+    spec:
+      # ========================================
+      # NODE AFFINITY - Solo heavy-nodes
+      # ========================================
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: workload-type
+                operator: In
+                values: ["critical"]
+              - key: tier
+                operator: In
+                values: ["heavy"]
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-class
+                operator: In
+                values: ["free-tier-optimized"]
+        
+        # ========================================
+        # POD ANTI-AFFINITY - Distribuir réplicas
+        # ========================================
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["payment-service"]
+            topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["payment-service"]
+              topologyKey: topology.kubernetes.io/zone
+      
+      # ========================================
+      # TOPOLOGY SPREAD CONSTRAINTS
+      # ========================================
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: payment-service
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: payment-service
+      
+      # ========================================
+      # TOLERATIONS para heavy-nodes
+      # ========================================
+      tolerations:
+      - key: workload-type
+        operator: Equal
+        value: critical
+        effect: NoSchedule
+      - key: tier
+        operator: Equal
+        value: heavy
+        effect: NoSchedule
+      
+      # ========================================
+      # CONTAINER CONFIGURATION
+      # ========================================
+      # ========================================
+      # SECURITY CONFIGURATION
+      # ========================================
+      serviceAccountName: ecommerce-service-account
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: payment-service
+        image: samub18/payment-service-ecommerce-boot:0.1.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - containerPort: 8400
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: logs-volume
+          mountPath: /app/logs
+          name: http
+        envFrom:
+        - configMapRef:
+            name: microservices-config
+        - configMapRef:
+            name: eureka-client-config
+        - secretRef:
+            name: database-sealed-secrets
+            optional: true
+        - secretRef:
+            name: api-keys-sealed-secrets
+            optional: true
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: payment-service-service
+        
+        # ========================================
+        # RESOURCES - Critical workload
+        # ========================================
+        resources:
+          requests:
+            memory: "1Gi"      # Increased for heavy workload
+            cpu: "500m"
+          limits:
+            memory: "2Gi"      # High limit for critical service
+            cpu: "1000m"
+        
+        # ========================================
+        # PROBES
+        # ========================================
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8400
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8400
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8400
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 15
+        
+        # ========================================
+        # SECURITY CONTEXT
+        # ========================================
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+        
+        # ========================================
+        # VOLUME MOUNTS
+        # ========================================
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /app/cache
+        - name: logs
+          mountPath: /app/logs
+      
+      # ========================================
+      # VOLUMES
+      # ========================================
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: logs
+        emptyDir:
+          sizeLimit: 2Gi
+      
+      # ========================================
+      # SECURITY AND SCHEDULING
+      # ========================================
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      
+      # Image pull secrets
+      imagePullSecrets:
+      
+      # ========================================
+      # VOLUMES FOR SECURITY (ReadOnlyRootFilesystem)
+      # ========================================
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: logs-volume
+        emptyDir: {}
+      - name: docker-registry-secret

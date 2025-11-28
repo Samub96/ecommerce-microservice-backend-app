@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microservices-config
+  namespace: ecommerce-dev
+data:
+  application.yml: |
+    eureka:
+      client:
+        service-url:
+          defaultZone: http://service-discovery-service:8761/eureka/
+        register-with-eureka: true
+        fetch-registry: true
+        enabled: true
+      instance:
+        prefer-ip-address: true
+        lease-renewal-interval-in-seconds: 30
+        lease-expiration-duration-in-seconds: 90
+    spring:
+      cloud:
+        config:
+          uri: http://cloud-config-service:9296
+      zipkin:
+        base-url: http://zipkin-service:9411
+        sender:
+          type: web
+      sleuth:
+        zipkin:
+          base-url: http://zipkin-service:9411

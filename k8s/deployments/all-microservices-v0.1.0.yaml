@@ -1,0 +1,353 @@
+# Cloud Config Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-config
+  namespace: ecommerce-dev
+  labels:
+    app: cloud-config
+    tier: burst
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloud-config
+  template:
+    metadata:
+      labels:
+        app: cloud-config
+        tier: burst
+    spec:
+      nodeSelector:
+        node-type: burst
+      containers:
+      - name: cloud-config
+        image: samub18/cloud-config-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 9296
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# API Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: ecommerce-dev
+  labels:
+    app: api-gateway
+    tier: burst
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        tier: burst
+    spec:
+      nodeSelector:
+        node-type: burst
+      containers:
+      - name: api-gateway
+        image: samub18/api-gateway-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# User Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: ecommerce-dev
+  labels:
+    app: user-service
+    tier: standard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+        tier: standard
+    spec:
+      nodeSelector:
+        node-type: standard
+      containers:
+      - name: user-service
+        image: samub18/user-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8081
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Product Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: ecommerce-dev
+  labels:
+    app: product-service
+    tier: standard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+        tier: standard
+    spec:
+      nodeSelector:
+        node-type: standard
+      containers:
+      - name: product-service
+        image: samub18/product-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8082
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Favourite Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: favourite-service
+  namespace: ecommerce-dev
+  labels:
+    app: favourite-service
+    tier: standard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: favourite-service
+  template:
+    metadata:
+      labels:
+        app: favourite-service
+        tier: standard
+    spec:
+      nodeSelector:
+        node-type: standard
+      containers:
+      - name: favourite-service
+        image: samub18/favourite-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8083
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Order Service  
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: ecommerce-dev
+  labels:
+    app: order-service
+    tier: critical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+        tier: critical
+    spec:
+      nodeSelector:
+        node-type: critical
+      tolerations:
+      - key: "critical-workloads"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      containers:
+      - name: order-service
+        image: samub18/order-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8084
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Payment Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: ecommerce-dev
+  labels:
+    app: payment-service
+    tier: critical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        tier: critical
+    spec:
+      nodeSelector:
+        node-type: critical
+      tolerations:
+      - key: "critical-workloads"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      containers:
+      - name: payment-service
+        image: samub18/payment-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8085
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Shipping Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shipping-service
+  namespace: ecommerce-dev
+  labels:
+    app: shipping-service
+    tier: critical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shipping-service
+  template:
+    metadata:
+      labels:
+        app: shipping-service
+        tier: critical
+    spec:
+      nodeSelector:
+        node-type: critical
+      tolerations:
+      - key: "critical-workloads"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      containers:
+      - name: shipping-service
+        image: samub18/shipping-service-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8086
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+# Proxy Client
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-client
+  namespace: ecommerce-dev
+  labels:
+    app: proxy-client
+    tier: burst
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy-client
+  template:
+    metadata:
+      labels:
+        app: proxy-client
+        tier: burst
+    spec:
+      nodeSelector:
+        node-type: burst
+      containers:
+      - name: proxy-client
+        image: samub18/proxy-client-ecommerce-boot:0.1.0
+        ports:
+        - containerPort: 8087
+        env:
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          value: "http://service-discovery-service:8761/eureka/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

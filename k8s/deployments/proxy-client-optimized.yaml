@@ -1,0 +1,247 @@
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - PROXY CLIENT (BURST WORKLOAD)
+# Configurado para burst-nodes con escalado agresivo
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-client
+  namespace: ecommerce-dev
+  labels:
+    app: proxy-client
+    component: infrastructure
+    tier: burst
+    workload-type: burst
+spec:
+  replicas: 1  # Lower base replicas for proxy
+  selector:
+    matchLabels:
+      app: proxy-client
+  template:
+    metadata:
+      labels:
+        app: proxy-client
+        component: infrastructure
+        tier: burst
+        workload-type: burst
+    spec:
+      # ========================================
+      # NODE AFFINITY - Solo burst-nodes
+      # ========================================
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: workload-type
+                operator: In
+                values: ["burst"]
+              - key: tier
+                operator: In
+                values: ["intermittent"]
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-class
+                operator: In
+                values: ["free-tier-optimized"]
+        
+        # ========================================
+        # POD ANTI-AFFINITY - Distribuir réplicas
+        # ========================================
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 80
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["proxy-client"]
+              topologyKey: kubernetes.io/hostname
+      
+      # ========================================
+      # TOLERATIONS para burst-nodes
+      # ========================================
+      tolerations:
+      - key: workload-type
+        operator: Equal
+        value: burst
+        effect: NoSchedule
+      - key: tier
+        operator: Equal
+        value: intermittent
+        effect: NoSchedule
+      
+      # ========================================
+      # CONTAINER CONFIGURATION
+      # ========================================
+      # ========================================
+      # SECURITY CONFIGURATION
+      # ========================================
+      serviceAccountName: ecommerce-service-account
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: proxy-client
+        image: samub18/proxy-client-ecommerce-boot:0.1.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - containerPort: 8900
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: logs-volume
+          mountPath: /app/logs
+          name: http
+        envFrom:
+        - configMapRef:
+            name: microservices-config
+        - configMapRef:
+            name: eureka-client-config
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_PROFILES_ACTIVE
+        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+        - name: SPRING_ZIPKIN_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_ZIPKIN_BASE_URL
+        - name: SPRING_CONFIG_IMPORT
+          valueFrom:
+            configMapKeyRef:
+              name: microservices-config
+              key: SPRING_CONFIG_IMPORT
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: proxy-client-service
+        
+        # ========================================
+        # RESOURCES - Minimal for proxy
+        # ========================================
+        resources:
+          requests:
+            memory: "256Mi"    # Minimal requests for proxy
+            cpu: "100m"        # Very low base CPU
+          limits:
+            memory: "512Mi"    # Lower burst limit for proxy
+            cpu: "400m"        # Limited burst CPU
+        
+        # ========================================
+        # PROBES - Fast for burst workload
+        # ========================================
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8900
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 8
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8900
+          initialDelaySeconds: 30
+          periodSeconds: 8
+          timeoutSeconds: 5
+          failureThreshold: 2
+        startupProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8900
+          initialDelaySeconds: 20
+          periodSeconds: 8
+          timeoutSeconds: 5
+          failureThreshold: 10
+        
+        # ========================================
+        # SECURITY CONTEXT
+        # ========================================
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+        
+        # ========================================
+        # VOLUME MOUNTS
+        # ========================================
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /app/cache
+        - name: logs
+          mountPath: /app/logs
+      
+      # ========================================
+      # VOLUMES - Minimal for proxy
+      # ========================================
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir:
+          sizeLimit: 128Mi    # Very small cache for proxy
+      - name: logs
+        emptyDir:
+          sizeLimit: 256Mi    # Very small logs for proxy
+      
+      # ========================================
+      # SECURITY AND SCHEDULING
+      # ========================================
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      
+      terminationGracePeriodSeconds: 20    # Very fast termination for proxy
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      
+      # Image pull secrets
+      imagePullSecrets:
+      
+      # ========================================
+      # VOLUMES FOR SECURITY (ReadOnlyRootFilesystem)
+      # ========================================
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: logs-volume
+        emptyDir: {}
+      - name: docker-registry-secret

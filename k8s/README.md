@@ -17,13 +17,33 @@ k8s/
 └── scripts/            # Scripts de automatización
 ```
 
+## 🚀 Estrategias de Deployment
+
+### 📊 Estrategias Disponibles
+
+1. **Rolling Update** (Por defecto) - Todos los servicios
+2. **Canary Deployment** - Servicios orientados al cliente (implementado)
+
+### 🐤 Canary Deployment
+
+Los servicios orientados al cliente utilizan Canary deployment:
+
+```bash
+# Configurar canary deployment
+helm upgrade --install ecommerce-canary ./helm/ecommerce-microservices \
+  --set canary.enabled=true \
+  --set canary.weight=10 \
+  --set canary.analysis.enabled=true
+```
+
 ## 🚀 Despliegue Rápido
 
 ### Prerrequisitos
 
-1. **Kubernetes Cluster** funcionando (Minikube, Docker Desktop, etc.)
+1. **Kubernetes Cluster** funcionando (Minikube, Docker Desktop, EKS)
 2. **kubectl** configurado y conectado al cluster
-3. **Nginx Ingress Controller** (opcional, para ingress)
+3. **Helm** v3.0+ instalado
+4. **Nginx Ingress Controller** (opcional, para ingress)
 
 ### Despliegue Automático
 

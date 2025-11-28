@@ -1,0 +1,241 @@
+# POD SECURITY STANDARDS MODERNOS (PSS)
+# Reemplaza Pod Security Policies obsoletas con estándares modernos de Kubernetes
+
+---
+# Namespace labels para Pod Security Standards
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce-dev
+  labels:
+    # Pod Security Standards enforcement
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Version del PSS
+    pod-security.kubernetes.io/enforce-version: v1.29
+    pod-security.kubernetes.io/audit-version: v1.29
+    pod-security.kubernetes.io/warn-version: v1.29
+---
+# Configuración específica de PSS para aplicaciones
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-security-config
+  namespace: ecommerce-dev
+data:
+  security-policy.yaml: |
+    # Configuración de seguridad para pods de aplicación
+    securityContext:
+      # No ejecutar como root
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 3000
+      fsGroup: 2000
+      # Prevenir escalada de privilegios
+      allowPrivilegeEscalation: false
+      # Capabilities mínimas
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - NET_BIND_SERVICE  # Solo para puertos < 1024 si necesario
+      # Filesystem read-only cuando sea posible
+      readOnlyRootFilesystem: true
+      # SELinux/AppArmor (si están habilitados)
+      seLinuxOptions:
+        level: "s0:c123,c456"
+
+---
+# SecurityContext por defecto para deployments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: default-security-context
+  namespace: ecommerce-dev
+data:
+  application.yaml: |
+    # SecurityContext estándar para microservicios
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 3000
+      fsGroup: 2000
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 3000
+      capabilities:
+        drop:
+        - ALL
+      seccompProfile:
+        type: RuntimeDefault
+
+---
+# NetworkPolicy para restringir acceso a metadata service
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-metadata-access
+  namespace: ecommerce-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  # Bloquear acceso a metadata service de cloud providers
+  - to: []
+    except:
+    # AWS metadata service
+    - ipBlock:
+        cidr: 169.254.169.254/32
+    # GCP metadata service
+    - ipBlock:
+        cidr: 169.254.169.254/32
+    # Azure metadata service
+    - ipBlock:
+        cidr: 169.254.169.254/32
+
+---
+# Validación de imágenes con admission controller
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-security-policy
+  namespace: ecommerce-dev
+data:
+  policy.yaml: |
+    # Políticas de seguridad para imágenes
+    imageSecurityRequirements:
+      # Registros permitidos
+      allowedRegistries:
+      - "docker.io"
+      - "gcr.io"
+      - "quay.io"
+      - "registry.k8s.io"
+      # Requerir imágenes firmadas
+      requireImageSigning: false  # Habilitar en producción
+      # Escaneo de vulnerabilidades
+      requireVulnerabilityScanning: true
+      maxAllowedCriticalVulnerabilities: 0
+      maxAllowedHighVulnerabilities: 2
+      # Prohibir latest tags en producción
+      prohibitLatestTag: true
+      # Requerir imagen específica con hash
+      requireImageDigest: false  # Habilitar en producción
+
+---
+# Resource Quotas para prevenir resource bombing
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ecommerce-security-quota
+  namespace: ecommerce-dev
+spec:
+  hard:
+    # Límites de pods
+    count/pods: "50"
+    count/persistentvolumeclaims: "10"
+    count/services: "20"
+    count/secrets: "20"
+    count/configmaps: "30"
+    # Límites de recursos
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "20"
+    limits.memory: "40Gi"
+    # Límites de storage
+    requests.storage: "100Gi"
+
+---
+# LimitRange para establecer defaults de seguridad
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ecommerce-security-limits
+  namespace: ecommerce-dev
+spec:
+  limits:
+  # Límites por pod
+  - type: Pod
+    max:
+      cpu: "2"
+      memory: "4Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+  # Límites por container
+  - type: Container
+    default:
+      cpu: "200m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    max:
+      cpu: "1"
+      memory: "2Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+  # Límites de storage
+  - type: PersistentVolumeClaim
+    max:
+      storage: "10Gi"
+    min:
+      storage: "1Gi"
+
+---
+# ServiceAccount con mínimos privilegios
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecommerce-restricted-sa
+  namespace: ecommerce-dev
+  annotations:
+    # Deshabilitar auto-mount del service account token
+    kubernetes.io/enforce-mountable-secrets: "true"
+automountServiceAccountToken: false
+
+---
+# Role con permisos mínimos para aplicaciones
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ecommerce-dev
+  name: ecommerce-restricted-role
+rules:
+# Solo lectura de ConfigMaps específicos
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+  resourceNames: ["microservices-config", "eureka-client-config"]
+# Solo lectura de Secrets específicos (con nombres explícitos)
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["database-secrets", "api-keys"]
+# Lectura de endpoints para service discovery
+- apiGroups: [""]
+  resources: ["endpoints", "services"]
+  verbs: ["get", "list", "watch"]
+
+---
+# RoleBinding con ServiceAccount restringido
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecommerce-restricted-binding
+  namespace: ecommerce-dev
+subjects:
+- kind: ServiceAccount
+  name: ecommerce-restricted-sa
+  namespace: ecommerce-dev
+roleRef:
+  kind: Role
+  name: ecommerce-restricted-role
+  apiGroup: rbac.authorization.k8s.io

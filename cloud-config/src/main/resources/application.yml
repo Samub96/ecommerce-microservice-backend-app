@@ -5,7 +5,7 @@ server:
 eureka:
   client:
     service-url:
-      defaultZone: http://service-discovery-container:8761/eureka/
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://service-discovery-service:8761/eureka/}
     register-with-eureka: true
     fetch-registry: true
 

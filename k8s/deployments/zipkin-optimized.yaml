@@ -1,0 +1,198 @@
+# ============================================================================
+# DEPLOYMENT OPTIMIZADO - ZIPKIN TRACING (BURST WORKLOAD)
+# Configurado para burst-nodes con escalado eficiente
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zipkin
+  namespace: ecommerce-dev
+  labels:
+    app: zipkin
+    component: tracing
+    arch-tier: monitoring
+    tier: burst
+    workload-type: burst
+spec:
+  replicas: 1  # Minimal for tracing service
+  selector:
+    matchLabels:
+      app: zipkin
+  template:
+    metadata:
+      labels:
+        app: zipkin
+        component: tracing
+        arch-tier: monitoring
+        tier: burst
+        workload-type: burst
+    spec:
+      # ========================================
+      # NODE AFFINITY - Solo burst-nodes
+      # ========================================
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: workload-type
+                operator: In
+                values: ["burst"]
+              - key: tier
+                operator: In
+                values: ["intermittent"]
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-class
+                operator: In
+                values: ["free-tier-optimized"]
+        
+        # ========================================
+        # POD ANTI-AFFINITY - Distribución simple
+        # ========================================
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 80
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["zipkin"]
+              topologyKey: kubernetes.io/hostname
+      
+      # ========================================
+      # TOLERATIONS para burst-nodes
+      # ========================================
+      tolerations:
+      - key: workload-type
+        operator: Equal
+        value: burst
+        effect: NoSchedule
+      - key: tier
+        operator: Equal
+        value: intermittent
+        effect: NoSchedule
+      
+      # ========================================
+      # CONTAINER CONFIGURATION
+      # ========================================
+      # ========================================
+      # SECURITY CONFIGURATION
+      # ========================================
+      serviceAccountName: ecommerce-service-account
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: zipkin
+        image: openzipkin/zipkin:latest
+        ports:
+        - containerPort: 9411
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: logs-volume
+          mountPath: /app/logs
+          name: http
+        env:
+        - name: JAVA_OPTS
+          valueFrom:
+            configMapKeyRef:
+              name: zipkin-config
+              key: JAVA_OPTS
+        - name: STORAGE_TYPE
+          valueFrom:
+            configMapKeyRef:
+              name: zipkin-config
+              key: STORAGE_TYPE
+        
+        # ========================================
+        # RESOURCES - Minimal for tracing
+        # ========================================
+        resources:
+          requests:
+            memory: "256Mi"    # Increased for better performance
+            cpu: "100m"
+          limits:
+            memory: "512Mi"    # Reasonable limit
+            cpu: "300m"
+        
+        # ========================================
+        # PROBES - Optimized for tracing service
+        # ========================================
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9411
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9411
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 9411
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
+        
+        # ========================================
+        # SECURITY CONTEXT
+        # ========================================
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Zipkin needs write access
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+        
+        # ========================================
+        # VOLUME MOUNTS
+        # ========================================
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: zipkin-data
+          mountPath: /zipkin/data
+      
+      # ========================================
+      # VOLUMES
+      # ========================================
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: zipkin-data
+        emptyDir:
+          sizeLimit: 1Gi
+      
+      # ========================================
+      # SECURITY AND SCHEDULING
+      # ========================================
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
