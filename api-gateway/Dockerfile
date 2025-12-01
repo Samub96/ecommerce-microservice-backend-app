@@ -1,5 +1,5 @@
 
-FROM openjdk:11.0.1-jre-slim
+FROM eclipse-temurin:11-jre
 
 ARG PROJECT_VERSION=0.1.0
 LABEL maintainer="ecommerce-microservice-backend"

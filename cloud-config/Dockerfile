@@ -4,7 +4,7 @@ ARG JAVA_VERSION=11
 ARG PROJECT_VERSION=0.1.0
 
 # Stage 1: Extract JAR layers for better caching
-FROM openjdk:11-jdk AS builder
+FROM eclipse-temurin:11-jdk AS builder
 ARG PROJECT_VERSION
 WORKDIR /workspace/app
 
@@ -15,7 +15,7 @@ COPY cloud-config/target/cloud-config-v${PROJECT_VERSION}.jar application.jar
 RUN java -Djarmode=layertools -jar application.jar extract
 
 # Stage 2: Runtime image
-FROM openjdk:11.0.1-jre-slim
+FROM eclipse-temurin:11-jre
 
 ARG PROJECT_VERSION=0.1.0
 LABEL maintainer="ecommerce-microservice-backend"
