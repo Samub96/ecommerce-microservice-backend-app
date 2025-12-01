@@ -23,7 +23,7 @@ RUN ./mvnw clean package -DskipTests
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../service-discovery-v*.jar)
 
 # Runtime stage
-FROM openjdk:11.0.11-jre
+FROM openjdk:11.0.1-jre-slim
 
 # Create non-root user for security
 RUN groupadd -r servicediscovery && useradd -r -g servicediscovery servicediscovery

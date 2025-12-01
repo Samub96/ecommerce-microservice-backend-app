@@ -25,7 +25,7 @@ RUN mvn clean package -DskipTests -B && \
 # ======================================
 # STAGE 2: Runtime Stage
 # ======================================
-FROM openjdk:11.0.11-jre AS runtime
+FROM openjdk:11.0.1-jre-slim AS runtime
 
 ARG PROJECT_VERSION=0.1.0
 

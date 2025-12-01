@@ -23,7 +23,7 @@ RUN ./mvnw clean package -DskipTests
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../proxy-client-v*.jar)
 
 # Runtime stage
-FROM openjdk:11.0.11-jre
+FROM openjdk:11.0.1-jre-slim
 
 # Create non-root user for security
 RUN groupadd -r proxyclient && useradd -r -g proxyclient proxyclient

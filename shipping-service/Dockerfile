@@ -1,6 +1,6 @@
 
 # Build stage
-FROM openjdk:11-jdk-slim as build
+FROM openjdk:11-jdk-jre as build
 
 WORKDIR /workspace/app
 
@@ -23,7 +23,7 @@ RUN ./mvnw clean package -DskipTests
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../shipping-service-v*.jar)
 
 # Runtime stage
-FROM openjdk:11.0.11-jre
+FROM openjdk:11.0.1-jre-slim
 
 # Create non-root user for security
 RUN groupadd -r shippingservice && useradd -r -g shippingservice shippingservice

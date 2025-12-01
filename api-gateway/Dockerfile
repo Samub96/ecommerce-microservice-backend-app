@@ -1,5 +1,5 @@
 
-FROM openjdk:11.0.11-jre
+FROM openjdk:11.0.1-jre-slim
 
 ARG PROJECT_VERSION=0.1.0
 LABEL maintainer="ecommerce-microservice-backend"
