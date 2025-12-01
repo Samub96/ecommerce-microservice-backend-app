@@ -5,7 +5,21 @@ metadata:
   namespace: ecommerce-dev
 data:
   SPRING_PROFILES_ACTIVE: "kubernetes"
-  SPRING_ZIPKIN_BASE_URL: "http://zipkin-service:9411"
-  SPRING_CONFIG_IMPORT: "optional:configserver:http://cloud-config-service:9296"
+  SPRING_ZIPKIN_BASE_URL: "http://a2676c2c17f0742a98d38a2df7be6acb-2049846578.us-east-1.elb.amazonaws.com:9411"
   MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
   MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+  # Múltiples configuraciones para Eureka
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+  EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+  EUREKA_DEFAULT_ZONE: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+  EUREKA_SERVICE_URL_DEFAULT_ZONE: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+  # Configuración directa del host Eureka
+  EUREKA_HOST: "af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com"
+  EUREKA_PORT: "8761"
+  EUREKA_INSTANCE_HOSTNAME: "af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com"
+  SPRING_CLOUD_CONFIG_ENABLED: "false"
+  SPRING_CONFIG_IMPORT: ""
+  # Deshabilitado temporalmente para evitar dependencia del cloud-config
+  # JAVA_OPTS con múltiples propiedades de sistema para forzar la configuración
+  JAVA_OPTS: "-Deureka.client.serviceUrl.defaultZone=http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/ -Deureka.client.service-url.defaultZone=http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/ -Dspring.cloud.config.enabled=false"

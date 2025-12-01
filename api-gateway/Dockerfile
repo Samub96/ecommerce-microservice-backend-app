@@ -18,7 +18,7 @@ ENV SPRING_PROFILES_ACTIVE=dev
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
 # Copy JAR file
-COPY target/api-gateway-v${PROJECT_VERSION}.jar api-gateway.jar
+COPY api-gateway/target/api-gateway-v${PROJECT_VERSION}.jar api-gateway.jar
 
 # Change ownership to non-root user
 RUN chown appuser:appuser api-gateway.jar

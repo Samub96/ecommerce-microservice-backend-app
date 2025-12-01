@@ -24,7 +24,45 @@ spec:
       - name: cloud-config
         image: samub18/cloud-config-ecommerce-boot:0.1.0
         ports:
-        - containerPort: 9296
+        - containerPort: 8900
+        env:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -61,8 +99,17 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: SPRING_CONFIG_IMPORT
+          value: "optional:configserver:http://cloud-config-service:9296"
+        - name: SPRING_CONFIG_LOCATION
+          value: "classpath:/application.yml,file:/config/application.yml"
+        envFrom:
+        - configMapRef:
+            name: microservices-config
+        volumeMounts:
+        - name: proxy-config
+          mountPath: /config
+          readOnly: true
         resources:
           requests:
             memory: "256Mi"
@@ -70,6 +117,10 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+      volumes:
+      - name: proxy-config
+        configMap:
+          name: api-gateway-proxy-config
 ---
 # User Service
 apiVersion: apps/v1
@@ -99,8 +150,15 @@ spec:
         ports:
         - containerPort: 8081
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -137,8 +195,15 @@ spec:
         ports:
         - containerPort: 8082
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -175,8 +240,15 @@ spec:
         ports:
         - containerPort: 8083
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -218,8 +290,15 @@ spec:
         ports:
         - containerPort: 8084
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -259,10 +338,17 @@ spec:
       - name: payment-service
         image: samub18/payment-service-ecommerce-boot:0.1.0
         ports:
-        - containerPort: 8085
+        - containerPort: 8400
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -304,8 +390,15 @@ spec:
         ports:
         - containerPort: 8086
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"
@@ -340,10 +433,17 @@ spec:
       - name: proxy-client
         image: samub18/proxy-client-ecommerce-boot:0.1.0
         ports:
-        - containerPort: 8087
+        - containerPort: 8900
         env:
-        - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
-          value: "http://service-discovery-service:8761/eureka/"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: microservices-config
         resources:
           requests:
             memory: "256Mi"

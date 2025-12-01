@@ -8,10 +8,14 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo "============================================"
-echo "    Testeo Completo de Microservicios"
+echo "    Testeo Completo de Microservicios AWS EKS"
 echo "============================================"
 
-API_GATEWAY="http://localhost:8080"
+API_GATEWAY="http://a2ee0d6f0b4e243c0abb249a271c9520-871411626.us-east-1.elb.amazonaws.com:8080"
+EUREKA_URL="http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761"
+ZIPKIN_URL="http://a2676c2c17f0742a98d38a2df7be6acb-2049846578.us-east-1.elb.amazonaws.com:9411"
+GRAFANA_URL="http://aa0f8e9cd5b1f437db57a9d462b99da6-1353816899.us-east-1.elb.amazonaws.com:3000"
+PROMETHEUS_URL="http://aefaf518a91fa4d749e5b6fc10ba21b3-1737145771.us-east-1.elb.amazonaws.com:9090"
 SUCCESS_COUNT=0
 ERROR_COUNT=0
 
@@ -63,32 +67,46 @@ test_direct_service() {
 }
 
 # Testear API Gateway primero
-test_service "API Gateway" "http://localhost:8080" "" "1" "10"
+test_service "API Gateway" "$API_GATEWAY" "" "1" "12"
 
-# Testear todos los microservicios via API Gateway (best practice)
-test_direct_service "User Service" "$API_GATEWAY/user-service/api/users" "2" "10"
-test_direct_service "Product Service" "$API_GATEWAY/product-service/api/products" "3" "10"
-test_direct_service "Order Service" "$API_GATEWAY/order-service/api/orders" "4" "10"
-test_direct_service "Payment Service" "$API_GATEWAY/payment-service/api/payments" "5" "10"
-test_direct_service "Favourite Service" "$API_GATEWAY/favourite-service/api/favourites" "6" "10"
-test_direct_service "Shipping Service" "$API_GATEWAY/shipping-service/api/shippings" "7" "10"
+# Testear todos los microservicios via PROXY-CLIENT (arquitectura proxy-client centric)
+test_direct_service "User Service" "$API_GATEWAY/app/api/users" "2" "12"
+test_direct_service "Product Service" "$API_GATEWAY/app/api/products" "3" "12"
+test_direct_service "Order Service" "$API_GATEWAY/app/api/orders" "4" "12"
+test_direct_service "Payment Service" "$API_GATEWAY/app/api/payments" "5" "12"
+test_direct_service "Favourite Service" "$API_GATEWAY/app/api/favourites" "6" "12"
+test_direct_service "Shipping Service" "$API_GATEWAY/app/api/shippings" "7" "12"
 
-# Note: Proxy Client is an internal service without external endpoints
+# Test Proxy Client via API Gateway (proxy-client centric architecture)
 echo ""
-echo -e "${BLUE}[8/10] Verificando Proxy Client...${NC}"
-echo -e "${YELLOW}[SKIP] Proxy Client - INTERNAL SERVICE (no external endpoints)${NC}"
-((SUCCESS_COUNT++))
+echo -e "${BLUE}[8/12] Verificando Proxy Client...${NC}"
+
+# Test proxy-client by making calls through /app/ path
+if curl -s "$API_GATEWAY/app/api/users" > /dev/null 2>&1; then
+    # Generate traffic through proxy-client using /app/ routes
+    echo "   → Activating proxy-client traffic..."
+    curl -s "$API_GATEWAY/app/api/users" > /dev/null 2>&1 || true
+    curl -s "$API_GATEWAY/app/api/products" > /dev/null 2>&1 || true
+    curl -s "$API_GATEWAY/app/api/orders" > /dev/null 2>&1 || true
+    sleep 1
+    echo -e "✅ ${GREEN}Proxy Client - TRAFFIC GENERATED${NC}"
+    ((SUCCESS_COUNT++))
+else
+    echo -e "❌ ${RED}Proxy Client - ERROR${NC}"
+    ((ERROR_COUNT++))
+fi
 
 # Testear servicios de infraestructura
-test_direct_service "Service Discovery (Eureka)" "http://localhost:8761/actuator/health" "9" "10"
-test_direct_service "Zipkin" "http://localhost:9411/zipkin/" "10" "10"
+test_direct_service "Service Discovery (Eureka)" "$EUREKA_URL/actuator/health" "9" "12"
+test_direct_service "Zipkin" "$ZIPKIN_URL/zipkin/" "10" "12"
+test_direct_service "Grafana" "$GRAFANA_URL/login" "11" "12"
+test_direct_service "Prometheus" "$PROMETHEUS_URL/-/healthy" "12" "12"
 
-echo ""
 echo "============================================"
 echo "           RESUMEN DEL TESTEO"
 echo "============================================"
-echo -e "✅ ${GREEN}Servicios funcionando: $SUCCESS_COUNT/10${NC}"
-echo -e "❌ ${RED}Servicios con error:   $ERROR_COUNT/10${NC}"
+echo -e "✅ ${GREEN}Servicios funcionando: $SUCCESS_COUNT/12${NC}"
+echo -e "❌ ${RED}Servicios con error:   $ERROR_COUNT/12${NC}"
 echo ""
 
 if [ $ERROR_COUNT -eq 0 ]; then
@@ -96,51 +114,55 @@ if [ $ERROR_COUNT -eq 0 ]; then
     echo ""
     echo -e "${YELLOW}Generando tráfico adicional para Zipkin...${NC}"
 
-    # Generar múltiples peticiones para crear trazas más complejas
+    # Generar múltiples peticiones para crear trazas más complejas via PROXY-CLIENT
     for i in {1..5}; do
-        echo "   → Ciclo $i de peticiones..."
-        curl -s "$API_GATEWAY/user-service/api/users" > /dev/null 2>&1 || true
-        curl -s "$API_GATEWAY/product-service/api/products" > /dev/null 2>&1 || true
-        curl -s "$API_GATEWAY/order-service/api/orders" > /dev/null 2>&1 || true
-        curl -s "$API_GATEWAY/payment-service/api/payments" > /dev/null 2>&1 || true
-        curl -s "$API_GATEWAY/favourite-service/api/favourites" > /dev/null 2>&1 || true
-        curl -s "$API_GATEWAY/shipping-service/api/shippings" > /dev/null 2>&1 || true
+        echo "   → Ciclo $i de peticiones via proxy-client..."
+        curl -s "$API_GATEWAY/app/api/users" > /dev/null 2>&1 || true
+        curl -s "$API_GATEWAY/app/api/products" > /dev/null 2>&1 || true
+        curl -s "$API_GATEWAY/app/api/orders" > /dev/null 2>&1 || true
+        curl -s "$API_GATEWAY/app/api/payments" > /dev/null 2>&1 || true
+        curl -s "$API_GATEWAY/app/api/favourites" > /dev/null 2>&1 || true
+        curl -s "$API_GATEWAY/app/api/shippings" > /dev/null 2>&1 || true
         sleep 1
     done
 
     echo ""
-    echo -e "${BLUE}Ahora verifica las trazas en Zipkin:${NC}"
-    echo -e "👉 ${YELLOW}http://localhost:9411/zipkin/${NC}"
+    echo -e "${YELLOW}Generando tráfico adicional para activar Proxy Client...${NC}"
+    
+    # Generar peticiones concurrentes para activar comunicación inter-servicios via proxy-client
+    for i in {1..10}; do
+        echo "   → Activating proxy-client trace $i..."
+        # Llamadas simultáneas que activan comunicación interna via proxy-client
+        curl -s "$API_GATEWAY/app/api/users" > /dev/null 2>&1 &
+        curl -s "$API_GATEWAY/app/api/products" > /dev/null 2>&1 &
+        curl -s "$API_GATEWAY/app/api/orders" > /dev/null 2>&1 &
+        curl -s "$API_GATEWAY/app/api/payments" > /dev/null 2>&1 &
+        wait  # Esperar a que terminen las llamadas concurrentes
+        sleep 0.5
+    done
+
     echo ""
-    echo -e "${BLUE}URLs de Swagger disponibles:${NC}"
-    echo -e "• User Service:      ${YELLOW}http://localhost:8700/user-service/swagger-ui.html${NC}"
-    echo -e "• Product Service:   ${YELLOW}http://localhost:8400/product-service/swagger-ui.html${NC}"
-    echo -e "• Order Service:     ${YELLOW}http://localhost:8600/order-service/swagger-ui.html${NC}"
-    echo -e "• Payment Service:   ${YELLOW}http://localhost:8500/payment-service/swagger-ui.html${NC}"
-    echo -e "• Favourite Service: ${YELLOW}http://localhost:8300/favourite-service/swagger-ui.html${NC}"
-    echo -e "• Shipping Service:  ${YELLOW}http://localhost:8800/shipping-service/swagger-ui.html${NC}"
-    echo -e "• Proxy Client:      ${YELLOW}http://localhost:8900/proxy-client/swagger-ui.html${NC}"
-    echo -e "• API Gateway:       ${YELLOW}http://localhost:8080/api-gateway/swagger-ui.html${NC}"
-    echo -e "• Eureka Dashboard:  ${YELLOW}http://localhost:8761/${NC}"
+    echo -e "${BLUE}Ahora verifica las trazas en Zipkin:${NC}"
+    echo -e "👉 ${YELLOW}$ZIPKIN_URL/zipkin/${NC}"
+    echo ""
+    echo -e "${BLUE}URLs AWS EKS disponibles:${NC}"
+    echo -e "• API Gateway:       ${YELLOW}$API_GATEWAY${NC}"
+    echo -e "• Eureka Dashboard:  ${YELLOW}$EUREKA_URL${NC}"
+    echo -e "• Zipkin Tracing:    ${YELLOW}$ZIPKIN_URL${NC}"
+    echo -e "• Grafana Dashboards: ${YELLOW}$GRAFANA_URL${NC}"
+    echo -e "• Prometheus Metrics: ${YELLOW}$PROMETHEUS_URL${NC}"
 
     echo ""
     echo -e "${GREEN}📊 Las trazas deberían mostrar ahora todas las conexiones entre servicios!${NC}"
 
 else
-    echo -e "⚠️  ${YELLOW}Hay servicios con problemas. Verifica los logs del IDE.${NC}"
+    echo -e "⚠️  ${YELLOW}Hay servicios con problemas. Verifica los logs de Kubernetes.${NC}"
     echo ""
-    echo -e "${BLUE}Servicios que deberían estar corriendo:${NC}"
-    echo "• API Gateway (8080)"
-    echo "• User Service (8700)"
-    echo "• Product Service (8400)"
-    echo "• Order Service (8600)"
-    echo "• Payment Service (8500)"
-    echo "• Favourite Service (8300)"
-    echo "• Shipping Service (8800)"
-    echo "• Proxy Client (8900)"
-    echo "• Service Discovery (8761)"
-    echo "• Zipkin (9411) - ¿Está corriendo con Docker?"
+    echo -e "${BLUE}Comandos para debugging:${NC}"
+    echo "• kubectl get pods -n ecommerce-dev"
+    echo "• kubectl logs <pod-name> -n ecommerce-dev"
+    echo "• kubectl describe pod <pod-name> -n ecommerce-dev"
 fi
 
 echo ""
-echo -e "${BLUE}Script completado. ¡Revisa Zipkin para ver las trazas!${NC}"
+echo -e "${BLUE}Script completado. ¡Revisa Zipkin para ver las trazas distribuidas!${NC}"

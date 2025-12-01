@@ -8,6 +8,6 @@ metadata:
 data:
   EUREKA_CLIENT_FETCH_REGISTRY: "true"
   EUREKA_CLIENT_REGISTER_WITH_EUREKA: "true"
-  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-discovery-service:8761/eureka/
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://af8819d9c3e344624ba9826b37a9cbfd-710075248.us-east-1.elb.amazonaws.com:8761/eureka/
   EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
   SPRING_PROFILES_ACTIVE: kubernetes

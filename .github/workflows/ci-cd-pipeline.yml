@@ -19,6 +19,7 @@ env:
   IMAGE_PREFIX: samub96/ecommerce
   KUBECTL_VERSION: v1.28.4
   KUBESEAL_VERSION: v0.24.3
+  HELM_VERSION: v3.13.2
 
 jobs:
   # ======================================
@@ -39,7 +40,7 @@ jobs:
         fetch-depth: 0
     
     - name: ☕ Setup Java 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -105,7 +106,7 @@ jobs:
           --suppression dependency-check-suppressions.xml
     
     - name: 📋 Upload OWASP Dependency Check results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dependency-check-reports
         path: reports/
@@ -150,7 +151,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: ☕ Setup Java 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -196,7 +197,7 @@ jobs:
         mvn surefire-report:report
     
     - name: 📋 Upload Test Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results-${{ matrix.service }}
@@ -206,7 +207,7 @@ jobs:
           ${{ matrix.service }}/target/site/surefire-report.html
     
     - name: 📋 Upload Build Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: jar-artifact-${{ matrix.service }}
         path: ${{ matrix.service }}/target/*.jar
@@ -238,7 +239,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: 📋 Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: jar-artifact-${{ matrix.service }}
         path: ${{ matrix.service }}/target/
@@ -458,7 +459,13 @@ jobs:
       run: |
         echo "🚨 Deployment failed! Initiating automatic rollback..."
         
-        kubectl rollout undo deployment --all -n ecommerce-production
+        # Get all deployments and rollback each one individually
+        for dep in $(kubectl -n ecommerce-production get deploy -o name); do
+          echo "↩️ Rolling back $dep"
+          kubectl rollout undo "$dep" -n ecommerce-production || true
+        done
+        
+        # Wait for all deployments to be available
         kubectl wait --for=condition=available --timeout=300s deployment --all -n ecommerce-production
         
         echo "✅ Rollback completed successfully"
