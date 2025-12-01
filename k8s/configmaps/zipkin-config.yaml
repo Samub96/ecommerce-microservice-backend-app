@@ -4,6 +4,6 @@ metadata:
   name: zipkin-config
   namespace: ecommerce-dev
 data:
-  JAVA_OPTS: "-Xmx512m -Xms256m"
+  JAVA_OPTS: "-Xmx384m -Xms256m -XX:MaxMetaspaceSize=128m"
   STORAGE_TYPE: "mem"
   ZIPKIN_LOG_LEVEL: "INFO"

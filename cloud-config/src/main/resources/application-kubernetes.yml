@@ -1,0 +1,57 @@
+server:
+  port: 9296
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  health:
+    circuitbreakers:
+      enabled: true
+  endpoint:
+    health:
+      show-details: always
+
+spring:
+  application:
+    name: CLOUD-CONFIG
+  zipkin:
+    base-url: ${SPRING_ZIPKIN_BASE_URL:http://zipkin-service:9411/}
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/Samub96/cloud-config-server
+          clone-on-start: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://service-discovery-service:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:cloud-config}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      cloudConfig:
+        register-health-indicator: true
+        event-consumer-buffer-size: 10
+        automatic-transition-from-open-to-half-open-enabled: true
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        sliding-window-size: 10
+        wait-duration-in-open-state: 5s
+        sliding-window-type: COUNT_BASED
+
+logging:
+  level:
+    com.netflix.eureka: INFO
+    com.netflix.discovery: INFO
+    org.springframework.cloud: INFO
+    root: INFO

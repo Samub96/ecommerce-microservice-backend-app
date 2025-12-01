@@ -1,0 +1,258 @@
+# ============================================================================
+# TRAEFIK INGRESS CONTROLLER - CONFIGURACIÓN ULTRA LIVIANA
+# Alternativa a NGINX para instancias con recursos limitados
+# ============================================================================
+
+---
+# Namespace para Traefik
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik-system
+  labels:
+    name: traefik-system
+
+---
+# ServiceAccount para Traefik
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-ingress-controller
+  namespace: traefik-system
+
+---
+# ClusterRole con permisos mínimos
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: traefik-ingress-controller
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: traefik-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-ingress-controller
+subjects:
+  - kind: ServiceAccount
+    name: traefik-ingress-controller
+    namespace: traefik-system
+
+---
+# ConfigMap para configuración de Traefik
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: traefik-system
+data:
+  traefik.yml: |
+    # Configuración ultraliviana de Traefik
+    global:
+      checkNewVersion: false
+      sendAnonymousUsage: false
+    
+    # API y Dashboard deshabilitados para ahorrar recursos
+    api:
+      dashboard: false
+      insecure: false
+    
+    # Entry points
+    entryPoints:
+      web:
+        address: ":80"
+      websecure:
+        address: ":443"
+    
+    # Providers
+    providers:
+      kubernetes:
+        allowExternalNameServices: true
+        allowEmptyServices: false
+    
+    # Certificados automáticos con Let's Encrypt
+    certificatesResolvers:
+      letsencrypt:
+        acme:
+          email: admin@ecommerce-dev.com
+          storage: /data/acme.json
+          httpChallenge:
+            entryPoint: web
+    
+    # Logging mínimo
+    log:
+      level: WARN
+    
+    # Access log deshabilitado para ahorrar recursos
+    accessLog: {}
+
+---
+# Deployment de Traefik ultraliviano
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: traefik-system
+  labels:
+    app: traefik
+spec:
+  replicas: 1  # Solo 1 réplica para ahorrar recursos
+  selector:
+    matchLabels:
+      app: traefik
+  template:
+    metadata:
+      labels:
+        app: traefik
+    spec:
+      serviceAccountName: traefik-ingress-controller
+      containers:
+      - name: traefik
+        image: traefik:v3.0
+        args:
+          - --configFile=/config/traefik.yml
+        ports:
+        - name: web
+          containerPort: 80
+        - name: websecure
+          containerPort: 443
+        resources:
+          requests:
+            memory: "30Mi"    # 🔥 ULTRA LIVIANO - Solo 30Mi
+            cpu: "50m"
+          limits:
+            memory: "100Mi"   # Límite bajo
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: data
+          mountPath: /data
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+      volumes:
+      - name: config
+        configMap:
+          name: traefik-config
+      - name: data
+        emptyDir: {}
+
+---
+# Service para Traefik
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: traefik-system
+  labels:
+    app: traefik
+spec:
+  type: LoadBalancer
+  ports:
+  - name: web
+    port: 80
+    targetPort: 80
+  - name: websecure
+    port: 443
+    targetPort: 443
+  selector:
+    app: traefik
+
+---
+# IngressClass para Traefik
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: traefik
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+spec:
+  controller: traefik.io/ingress-controller
+
+---
+# ============================================================================
+# INGRESS PARA API GATEWAY CON TRAEFIK
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-traefik
+  namespace: ecommerce-dev
+  annotations:
+    # Traefik annotations (más simples que NGINX)
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.middlewares: ecommerce-dev-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - ecommerce-api.local
+    - api.ecommerce-dev.com
+  rules:
+  - host: ecommerce-api.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 8080
+  - host: api.ecommerce-dev.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 8080
+
+---
+# Middleware de Rate Limiting para Traefik
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: ecommerce-dev
+spec:
+  rateLimit:
+    burst: 50
+    average: 100

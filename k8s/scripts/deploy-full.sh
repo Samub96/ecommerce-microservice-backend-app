@@ -74,7 +74,7 @@ print_status "Almacenamiento configurado"
 echo "🏗️ Desplegando servicios de infraestructura base..."
 
 # Zipkin primero
-kubectl apply -f k8s/deployments/zipkin-deployment.yaml
+kubectl apply -f k8s/deployments/zipkin-optimized.yaml
 kubectl apply -f k8s/services/infrastructure-services.yaml
 
 echo "⏳ Esperando que Zipkin esté listo..."
@@ -82,14 +82,14 @@ kubectl wait --for=condition=ready pod -l app=zipkin -n ecommerce-dev --timeout=
 print_status "Zipkin está listo"
 
 # Service Discovery
-kubectl apply -f k8s/deployments/service-discovery-deployment.yaml
+kubectl apply -f k8s/deployments/service-discovery-optimized.yaml
 
 echo "⏳ Esperando que Service Discovery esté listo..."
 kubectl wait --for=condition=ready pod -l app=service-discovery -n ecommerce-dev --timeout=300s
 print_status "Service Discovery está listo"
 
 # Cloud Config
-kubectl apply -f k8s/deployments/cloud-config-deployment.yaml
+kubectl apply -f k8s/deployments/cloud-config-optimized.yaml
 
 echo "⏳ Esperando que Cloud Config esté listo..."
 kubectl wait --for=condition=ready pod -l app=cloud-config -n ecommerce-dev --timeout=300s
@@ -125,7 +125,7 @@ print_status "Stack de monitoreo desplegado"
 
 # Paso 8: Desplegar API Gateway
 echo "🌐 Desplegando API Gateway..."
-kubectl apply -f k8s/deployments/api-gateway-deployment.yaml
+kubectl apply -f k8s/deployments/api-gateway-optimized.yaml
 kubectl apply -f k8s/services/application-services.yaml
 
 echo "⏳ Esperando que API Gateway esté listo..."
@@ -134,9 +134,9 @@ print_status "API Gateway está listo"
 
 # Paso 9: Desplegar microservicios de negocio
 echo "🏪 Desplegando microservicios de negocio..."
-kubectl apply -f k8s/deployments/business-services-deployment.yaml
-kubectl apply -f k8s/deployments/support-services-deployment.yaml
-kubectl apply -f k8s/deployments/user-service-deployment.yaml
+kubectl apply -f k8s/deployments/business-services-optimized.yaml
+kubectl apply -f k8s/deployments/support-services-optimized.yaml
+kubectl apply -f k8s/deployments/user-service-optimized.yaml
 
 # Crear services faltantes
 kubectl apply -f k8s/services/business-services.yaml
@@ -156,7 +156,7 @@ fi
 
 # Paso 11: Configurar autoescalado
 echo "📈 Configurando autoescalado..."
-kubectl apply -f k8s/autoscaling/hpa.yaml
+kubectl apply -f k8s/autoscaling/hpa-optimized-complete.yaml
 print_status "Autoescalado configurado"
 
 echo ""

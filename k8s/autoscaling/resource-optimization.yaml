@@ -10,7 +10,7 @@ apiVersion: v1
 kind: LimitRange
 metadata:
   name: ecommerce-resource-limits
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: ecommerce
     component: resource-management
@@ -61,7 +61,7 @@ apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: ecommerce-resource-quota
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: ecommerce
     component: resource-management
@@ -151,7 +151,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: user-service-optimized
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: user-service
     version: optimized
@@ -356,7 +356,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-service-optimized
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: order-service
     version: optimized
@@ -516,7 +516,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-service-optimized
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: payment-service
     version: optimized
@@ -703,7 +703,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: fluentbit-config
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: fluentbit
     component: logging
@@ -749,7 +749,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: order-service-pdb
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: order-service
     component: availability
@@ -764,7 +764,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: payment-service-pdb
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: payment-service
     component: availability
@@ -779,7 +779,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: user-service-pdb
-  namespace: default
+  namespace: ecommerce-dev
   labels:
     app: user-service
     component: availability

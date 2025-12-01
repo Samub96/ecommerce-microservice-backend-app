@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: payment-service
-        image: selimhorri/payment-service-ecommerce-boot:0.1.0
+        image: samub18/payment-service-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8400
           name: http
@@ -32,8 +32,13 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_REGISTER_WITH_EUREKA
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
             configMapKeyRef:
@@ -48,11 +53,11 @@ spec:
           value: payment-service-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
             memory: "1Gi"
-            cpu: "500m"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health
@@ -91,7 +96,7 @@ spec:
     spec:
       containers:
       - name: shipping-service
-        image: selimhorri/shipping-service-ecommerce-boot:0.1.0
+        image: samub18/shipping-service-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8600
           name: http
@@ -104,7 +109,7 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
@@ -120,11 +125,11 @@ spec:
           value: shipping-service-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "768Mi"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health
@@ -163,7 +168,7 @@ spec:
     spec:
       containers:
       - name: favourite-service
-        image: selimhorri/favourite-service-ecommerce-boot:0.1.0
+        image: samub18/favourite-service-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8800
           name: http
@@ -176,7 +181,7 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
@@ -192,11 +197,11 @@ spec:
           value: favourite-service-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "768Mi"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health
@@ -223,7 +228,7 @@ metadata:
     app: proxy-client
     component: microservice
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: proxy-client
@@ -235,7 +240,7 @@ spec:
     spec:
       containers:
       - name: proxy-client
-        image: selimhorri/proxy-client-ecommerce-boot:0.1.0
+        image: samub18/proxy-client-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8900
           name: http
@@ -248,7 +253,7 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
@@ -264,11 +269,11 @@ spec:
           value: proxy-client-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "768Mi"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health

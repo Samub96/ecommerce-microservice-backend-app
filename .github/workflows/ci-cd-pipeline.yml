@@ -17,9 +17,9 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: samub96/ecommerce
-  HELM_VERSION: v3.13.2
   KUBECTL_VERSION: v1.28.4
   KUBESEAL_VERSION: v0.24.3
+  HELM_VERSION: v3.13.2
 
 jobs:
   # ======================================
@@ -40,7 +40,7 @@ jobs:
         fetch-depth: 0
     
     - name: ☕ Setup Java 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -106,7 +106,7 @@ jobs:
           --suppression dependency-check-suppressions.xml
     
     - name: 📋 Upload OWASP Dependency Check results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dependency-check-reports
         path: reports/
@@ -151,7 +151,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: ☕ Setup Java 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -197,7 +197,7 @@ jobs:
         mvn surefire-report:report
     
     - name: 📋 Upload Test Results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results-${{ matrix.service }}
@@ -207,7 +207,7 @@ jobs:
           ${{ matrix.service }}/target/site/surefire-report.html
     
     - name: 📋 Upload Build Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: jar-artifact-${{ matrix.service }}
         path: ${{ matrix.service }}/target/*.jar
@@ -239,7 +239,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: 📋 Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: jar-artifact-${{ matrix.service }}
         path: ${{ matrix.service }}/target/
@@ -326,19 +326,15 @@ jobs:
         echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
         chmod 600 ~/.kube/config
     
-    - name: 🚀 Deploy to Staging with Helm
+    - name: 🚀 Deploy to Staging with kubectl
       run: |
-        helm upgrade --install ecommerce-staging ./helm/ecommerce-microservices \
-          --namespace ecommerce-staging \
-          --create-namespace \
-          --set global.environment=staging \
-          --set global.imageTag=${{ github.sha }} \
-          --set global.registry=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }} \
-          --set ingress.hosts[0].host=staging.ecommerce.example.com \
-          --set ingress.tls[0].secretName=staging-tls \
-          --set ingress.tls[0].hosts[0]=staging.ecommerce.example.com \
-          --wait \
-          --timeout=10m
+        # Apply Kubernetes manifests directly
+        kubectl apply -f k8s/namespaces/ --recursive || true
+        kubectl apply -f k8s/configmaps/ --recursive -n ecommerce-staging
+        kubectl apply -f k8s/secrets/ --recursive -n ecommerce-staging
+        kubectl apply -f k8s/services/ --recursive -n ecommerce-staging
+        kubectl apply -f k8s/deployments/ --recursive -n ecommerce-staging
+        kubectl apply -f k8s/ingress/ --recursive -n ecommerce-staging
     
     - name: 🏥 Health Check Staging
       run: |
@@ -387,24 +383,13 @@ jobs:
     
     - name: 🐤 Deploy Canary Release
       run: |
-        # Deploy with 10% traffic initially
-        helm upgrade --install ecommerce-canary ./helm/ecommerce-microservices \
-          --namespace ecommerce-production \
-          --create-namespace \
-          --set global.environment=production \
-          --set global.imageTag=${{ github.sha }} \
-          --set global.registry=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }} \
-          --set canary.enabled=true \
-          --set canary.weight=10 \
-          --set canary.analysis.enabled=true \
-          --set canary.analysis.threshold=99.5 \
-          --set canary.analysis.stepWeight=10 \
-          --set canary.analysis.maxWeight=50 \
-          --set ingress.hosts[0].host=ecommerce.example.com \
-          --set ingress.tls[0].secretName=production-tls \
-          --set ingress.tls[0].hosts[0]=ecommerce.example.com \
-          --wait \
-          --timeout=15m
+        # Apply Kubernetes manifests for production with canary labels
+        kubectl apply -f k8s/namespaces/ --recursive || true
+        kubectl apply -f k8s/configmaps/ --recursive -n ecommerce-production
+        kubectl apply -f k8s/secrets/ --recursive -n ecommerce-production
+        kubectl apply -f k8s/services/ --recursive -n ecommerce-production
+        kubectl apply -f k8s/deployments/ --recursive -n ecommerce-production
+        kubectl apply -f k8s/ingress/ --recursive -n ecommerce-production
     
     - name: 📊 Monitor Canary Deployment
       run: |
@@ -434,15 +419,9 @@ jobs:
       run: |
         echo "🎯 Promoting canary to 100% traffic..."
         
-        helm upgrade ecommerce-canary ./helm/ecommerce-microservices \
-          --namespace ecommerce-production \
-          --set global.environment=production \
-          --set global.imageTag=${{ github.sha }} \
-          --set global.registry=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }} \
-          --set canary.enabled=false \
-          --set canary.weight=100 \
-          --wait \
-          --timeout=10m
+        # Scale up production deployments to full capacity
+        kubectl scale deployment --all --replicas=3 -n ecommerce-production
+        kubectl wait --for=condition=available --timeout=600s deployment --all -n ecommerce-production
         
         echo "🚀 Production deployment completed successfully!"
     
@@ -480,8 +459,13 @@ jobs:
       run: |
         echo "🚨 Deployment failed! Initiating automatic rollback..."
         
-        helm rollback ecommerce-canary -n ecommerce-production
+        # Get all deployments and rollback each one individually
+        for dep in $(kubectl -n ecommerce-production get deploy -o name); do
+          echo "↩️ Rolling back $dep"
+          kubectl rollout undo "$dep" -n ecommerce-production || true
+        done
         
+        # Wait for all deployments to be available
         kubectl wait --for=condition=available --timeout=300s deployment --all -n ecommerce-production
         
         echo "✅ Rollback completed successfully"

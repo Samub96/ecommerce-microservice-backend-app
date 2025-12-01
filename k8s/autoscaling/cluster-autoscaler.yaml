@@ -39,7 +39,7 @@ spec:
         runAsUser: 65534
         fsGroup: 65534
       containers:
-      - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.28.2
+      - image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.30.0
         name: cluster-autoscaler
         imagePullPolicy: IfNotPresent
         securityContext:
@@ -50,19 +50,19 @@ spec:
             - ALL
         resources:
           limits:
-            cpu: 100m
-            memory: 600Mi
+            cpu: 50m
+            memory: 128Mi
           requests:
-            cpu: 100m
-            memory: 600Mi
+            cpu: 25m
+            memory: 64Mi
         command:
         - ./cluster-autoscaler
         - --v=4
         - --stderrthreshold=info
-        - --cloud-provider=azure
+        - --cloud-provider=aws
         - --skip-nodes-with-local-storage=false
         - --expander=least-waste
-        - --node-group-auto-discovery=label:cluster-autoscaler/enabled=true,cluster-autoscaler/ecommerce-cluster=owned
+        - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/ecommerce-cluster-final
         - --balance-similar-node-groups
         - --scale-down-enabled=true
         - --scale-down-delay-after-add=10m
@@ -92,35 +92,10 @@ spec:
         - --emit-per-nodegroup-metrics=true
         - --log-file-max-size=1800
         env:
-        - name: ARM_SUBSCRIPTION_ID
-          valueFrom:
-            secretRef:
-              name: cluster-autoscaler-azure-secret
-              key: subscription-id
-        - name: ARM_RESOURCE_GROUP
-          valueFrom:
-            secretRef:
-              name: cluster-autoscaler-azure-secret
-              key: resource-group
-        - name: ARM_TENANT_ID
-          valueFrom:
-            secretRef:
-              name: cluster-autoscaler-azure-secret
-              key: tenant-id
-        - name: ARM_CLIENT_ID
-          valueFrom:
-            secretRef:
-              name: cluster-autoscaler-azure-secret
-              key: client-id
-        - name: ARM_CLIENT_SECRET
-          valueFrom:
-            secretRef:
-              name: cluster-autoscaler-azure-secret
-              key: client-secret
-        - name: ARM_VM_TYPE
-          value: "AKS"
-        - name: ARM_USE_MANAGED_IDENTITY_EXTENSION
-          value: "false"
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: AWS_DEFAULT_REGION
+          value: "us-east-1"
         volumeMounts:
         - name: ssl-certs
           mountPath: /etc/ssl/certs/ca-certificates.crt
@@ -185,8 +160,8 @@ metadata:
     component: autoscaling
     k8s-app: cluster-autoscaler
   annotations:
-    # Para AWS IAM Roles for Service Accounts (IRSA)
-    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cluster-autoscaler-role"
+    # Para AWS IAM Roles for Service Accounts (IRSA) - se configurará automáticamente
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/AmazonEKSClusterAutoscalerRole"
 
 ---
 # ============================================================================
@@ -404,65 +379,69 @@ metadata:
     app: cluster-autoscaler
     component: configuration
 data:
-  # Configuración de node groups para diferentes tipos de workloads
+  # Configuración de node groups para FREE TIER (solo m7i-flex.large)
   node-groups.yaml: |
     nodeGroups:
-    - name: "ecommerce-general"
-      minSize: 2
-      maxSize: 20
-      instanceTypes: ["t3.medium", "t3.large"]
-      taints: []
-      labels:
-        workload-type: "general"
-        cost-optimization: "standard"
-    
-    - name: "ecommerce-cpu-intensive" 
+    - name: "critical-nodes"
       minSize: 0
-      maxSize: 15
-      instanceTypes: ["c5.large", "c5.xlarge"]
+      maxSize: 2
+      instanceTypes: ["m7i-flex.large"]
       taints:
-      - key: "workload"
-        value: "cpu-intensive"
+      - key: "workload-type"
+        value: "critical"
+        effect: "NoSchedule"
+      - key: "tier"
+        value: "heavy"
         effect: "NoSchedule"
       labels:
-        workload-type: "cpu-intensive"
-        cost-optimization: "performance"
+        workload-type: "critical"
+        tier: "heavy"
+        cost-optimization: "free-tier"
+        node-class: "free-tier-optimized"
     
-    - name: "ecommerce-memory-intensive"
+    - name: "standard-nodes" 
       minSize: 0
-      maxSize: 10
-      instanceTypes: ["r5.large", "r5.xlarge"]
+      maxSize: 2
+      instanceTypes: ["m7i-flex.large"]
       taints:
-      - key: "workload"
-        value: "memory-intensive" 
+      - key: "workload-type"
+        value: "standard"
+        effect: "NoSchedule"
+      - key: "tier"
+        value: "general"
         effect: "NoSchedule"
       labels:
-        workload-type: "memory-intensive"
-        cost-optimization: "performance"
+        workload-type: "standard"
+        tier: "general"
+        cost-optimization: "free-tier"
+        node-class: "free-tier-optimized"
     
-    - name: "ecommerce-spot-instances"
+    - name: "burst-nodes"
       minSize: 0
-      maxSize: 30
-      instanceTypes: ["t3.medium", "t3.large", "c5.large"]
+      maxSize: 3
+      instanceTypes: ["m7i-flex.large"]
       taints:
-      - key: "node-type"
-        value: "spot"
+      - key: "workload-type"
+        value: "burst"
+        effect: "NoSchedule"
+      - key: "tier"
+        value: "intermittent"
         effect: "NoSchedule"
       labels:
-        workload-type: "fault-tolerant"
-        cost-optimization: "aggressive"
-        node-lifecycle: "spot"
+        workload-type: "burst"
+        tier: "intermittent"
+        cost-optimization: "free-tier"
+        node-class: "free-tier-optimized"
 
-  # Configuración avanzada del expander
+  # Configuración de prioridades para FREE TIER
   expander-config.yaml: |
     priorities:
-    # Prioridad 1: Nodos spot para cargas fault-tolerant
-    - "10:ecommerce-spot-instances"
-    # Prioridad 2: Nodos generales para cargas normales
-    - "20:ecommerce-general"
-    # Prioridad 3: Nodos especializados solo cuando se necesiten
-    - "30:ecommerce-cpu-intensive"
-    - "30:ecommerce-memory-intensive"
+    # Prioridad 1: Burst nodes para cargas intermitentes (más nodos permitidos)
+    - "10:burst-nodes"
+    # Prioridad 2: Standard nodes para cargas normales
+    - "20:standard-nodes"
+    # Prioridad 3: Critical nodes solo para servicios críticos
+    - "30:critical-nodes"
 
 ---
 # ============================================================================

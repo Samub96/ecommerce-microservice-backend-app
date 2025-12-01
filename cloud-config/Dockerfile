@@ -1,21 +1,21 @@
 
 # Multi-stage optimized Dockerfile for Cloud Config
-ARG JAVA_VERSION=17
+ARG JAVA_VERSION=11
 ARG PROJECT_VERSION=0.1.0
 
 # Stage 1: Extract JAR layers for better caching
-FROM eclipse-temurin:${JAVA_VERSION}-jdk-alpine as builder
+FROM openjdk:11-jdk-slim as builder
 ARG PROJECT_VERSION
 WORKDIR /workspace/app
 
 # Copy the fat JAR
-COPY target/cloud-config-v${PROJECT_VERSION}.jar application.jar
+COPY cloud-config/target/cloud-config-v${PROJECT_VERSION}.jar application.jar
 
 # Extract the layers
 RUN java -Djarmode=layertools -jar application.jar extract
 
 # Stage 2: Runtime image
-FROM eclipse-temurin:${JAVA_VERSION}-jre-alpine
+FROM openjdk:11.0.1-jre-slim
 
 ARG PROJECT_VERSION=0.1.0
 LABEL maintainer="ecommerce-microservice-backend"
@@ -23,9 +23,10 @@ LABEL version="${PROJECT_VERSION}"
 LABEL service="cloud-config"
 
 # Install curl for health checks and create app user
-RUN apk add --no-cache curl && \
-    addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN apt-get update && apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -g 1001 appgroup && \
+    useradd -r -u 1001 -g appgroup appuser
 
 # Set working directory
 WORKDIR /app
@@ -47,7 +48,7 @@ ENV JAVA_OPTS="-XX:+UseContainerSupport \
     -Djava.security.egd=file:/dev/./urandom \
     -Dspring.jmx.enabled=false"
 
-ENV SPRING_PROFILES_ACTIVE=dev
+ENV SPRING_PROFILES_ACTIVE=kubernetes
 
 # Expose port
 EXPOSE 9296

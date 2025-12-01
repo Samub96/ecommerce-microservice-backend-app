@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: product-service
-        image: selimhorri/product-service-ecommerce-boot:0.1.0
+        image: samub18/product-service-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8500
           name: http
@@ -32,8 +32,13 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_REGISTER_WITH_EUREKA
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
             configMapKeyRef:
@@ -48,11 +53,11 @@ spec:
           value: product-service-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
             memory: "1Gi"
-            cpu: "500m"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health
@@ -91,7 +96,7 @@ spec:
     spec:
       containers:
       - name: order-service
-        image: selimhorri/order-service-ecommerce-boot:0.1.0
+        image: samub18/order-service-ecommerce-boot:0.1.0
         ports:
         - containerPort: 8300
           name: http
@@ -104,8 +109,13 @@ spec:
         - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
           valueFrom:
             configMapKeyRef:
-              name: eureka-config
+              name: eureka-client-config
               key: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: eureka-client-config
+              key: EUREKA_CLIENT_REGISTER_WITH_EUREKA
         - name: SPRING_ZIPKIN_BASE_URL
           valueFrom:
             configMapKeyRef:
@@ -120,11 +130,11 @@ spec:
           value: order-service-service
         resources:
           requests:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "250m"
           limits:
             memory: "1Gi"
-            cpu: "500m"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /actuator/health

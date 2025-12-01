@@ -1,0 +1,123 @@
+# CERTIFICADOS TLS AUTOMÁTICOS PARA TODOS LOS ENDPOINTS PÚBLICOS
+
+---
+# Let's Encrypt ClusterIssuer para producción
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  namespace: cert-manager
+spec:
+  acme:
+    # Servidor ACME de producción de Let's Encrypt
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@ecommerce-dev.com  # Cambiar por email real
+    # Clave privada para la cuenta ACME
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    # Solver HTTP01 para validación de dominios
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+          podTemplate:
+            spec:
+              nodeSelector:
+                "kubernetes.io/os": linux
+---
+# Let's Encrypt ClusterIssuer para staging/testing
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  namespace: cert-manager
+spec:
+  acme:
+    # Servidor ACME de staging de Let's Encrypt (para testing)
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: admin@ecommerce-dev.com  # Cambiar por email real
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+---
+# Certificado para el dominio principal de ecommerce
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ecommerce-main-cert
+  namespace: ecommerce-dev
+spec:
+  secretName: ecommerce-main-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - ecommerce.local
+  - ecommerce-dev.com
+  - www.ecommerce-dev.com
+---
+# Certificado para servicios de monitoreo (Zipkin)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zipkin-cert
+  namespace: ecommerce-dev
+spec:
+  secretName: zipkin-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - zipkin.local
+  - zipkin-dev.com
+  - zipkin.ecommerce-dev.com
+---
+# Certificado para service discovery (Eureka)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eureka-cert
+  namespace: ecommerce-dev
+spec:
+  secretName: eureka-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - eureka.local
+  - eureka-dev.com
+  - discovery.ecommerce-dev.com
+---
+# Certificado para APIs de microservicios
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-microservices-cert
+  namespace: ecommerce-dev
+spec:
+  secretName: api-microservices-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - api.ecommerce.local
+  - api.ecommerce-dev.com
+  - microservices.ecommerce-dev.com
+---
+# Certificado wildcard para subdominios (opcional, para producción)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-ecommerce-cert
+  namespace: ecommerce-dev
+spec:
+  secretName: wildcard-ecommerce-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - "*.ecommerce-dev.com"
+  - ecommerce-dev.com

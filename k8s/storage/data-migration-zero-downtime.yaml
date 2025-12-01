@@ -7,7 +7,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mysql-init-scripts
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: mysql
     component: initialization
@@ -294,7 +294,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mysql-slave-scripts
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: mysql
     component: slave-initialization
@@ -341,7 +341,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: data-migration-job
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: data-migration
     component: database-migration
@@ -516,7 +516,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: data-migration-sa
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: data-migration
     component: service-account
@@ -526,7 +526,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: data-migration-role
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: data-migration
     component: rbac
@@ -547,14 +547,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: data-migration-binding
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
   labels:
     app: data-migration
     component: rbac
 subjects:
 - kind: ServiceAccount
   name: data-migration-sa
-  namespace: ecommerce-production
+  namespace: ecommerce-dev
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

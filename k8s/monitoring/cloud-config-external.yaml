@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloud-config-external
+  namespace: ecommerce-dev
+spec:
+  selector:
+    app: cloud-config
+  ports:
+    - name: http
+      port: 9296
+      targetPort: 9296
+      protocol: TCP
+  type: LoadBalancer
