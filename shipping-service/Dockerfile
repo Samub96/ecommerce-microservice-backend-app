@@ -1,6 +1,6 @@
 
 # Build stage
-FROM openjdk:11-jdk-jre as build
+FROM openjdk:11-jdk AS build
 
 WORKDIR /workspace/app
 

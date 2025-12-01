@@ -4,7 +4,7 @@ ARG JAVA_VERSION=11
 ARG PROJECT_VERSION=0.1.0
 
 # Stage 1: Extract JAR layers for better caching
-FROM openjdk:11-jdk-slim as builder
+FROM openjdk:11-jdk AS builder
 ARG PROJECT_VERSION
 WORKDIR /workspace/app
 
