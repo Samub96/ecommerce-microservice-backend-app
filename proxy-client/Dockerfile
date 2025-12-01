@@ -6,21 +6,15 @@ WORKDIR /workspace/app
 
 # Copy maven files first for better layer caching
 COPY proxy-client/pom.xml .
-COPY proxy-client/mvnw .
-COPY proxy-client/mvnw.cmd .
-COPY proxy-client/.mvn .mvn
-
-# Make mvnw executable
-RUN chmod +x ./mvnw
 
 # Download dependencies for better layer caching
-RUN ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copy source code
 COPY proxy-client/src src
 
 # Build the application
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Extract JAR layers for better Docker layer caching
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../proxy-client-v*.jar)
@@ -57,5 +51,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 
 ENTRYPOINT ["dumb-init", "java"] 
 CMD ["-cp", ".:lib/*", "com.microservices.proxyclient.ProxyClientApplication"]
-
-

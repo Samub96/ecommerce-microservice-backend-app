@@ -6,21 +6,15 @@ WORKDIR /workspace/app
 
 # Copy maven files first for better layer caching
 COPY order-service/pom.xml .
-COPY order-service/mvnw .
-COPY order-service/mvnw.cmd .
-COPY order-service/.mvn .mvn
-
-# Make mvnw executable
-RUN chmod +x ./mvnw
 
 # Download dependencies for better layer caching
-RUN ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copy source code
 COPY order-service/src src
 
 # Build the application
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Extract JAR layers for better Docker layer caching
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../order-service-v*.jar)
@@ -57,5 +51,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 
 ENTRYPOINT ["dumb-init", "java"] 
 CMD ["-cp", ".:lib/*", "com.microservices.orderservice.OrderServiceApplication"]
-
-
