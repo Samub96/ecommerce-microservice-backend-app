@@ -4,6 +4,9 @@ FROM maven:3-eclipse-temurin-11 AS build
 
 WORKDIR /workspace/app
 
+# Copy parent pom first
+COPY pom.xml /workspace/
+
 # Copy maven files first for better layer caching
 COPY proxy-client/pom.xml .
 
