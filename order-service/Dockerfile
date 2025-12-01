@@ -30,7 +30,7 @@ RUN groupadd -r orderservice && useradd -r -g orderservice orderservice
 
 # Install security updates
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends dumb-init && \
+    apt-get install -y --no-install-recommends dumb-init curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/app

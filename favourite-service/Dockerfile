@@ -1,37 +1,59 @@
 
-# ======================================
-# STAGE 1: Build Stage
-# ======================================
-FROM maven:3.9.6-openjdk-11 AS builder
+# Build stage
+FROM eclipse-temurin:11-jdk AS build
 
-ARG PROJECT_VERSION=0.1.0
+WORKDIR /workspace/app
 
-# Set working directory
-WORKDIR /app
+# Copy maven files first for better layer caching
+COPY favourite-service/pom.xml .
+COPY favourite-service/mvnw .
+COPY favourite-service/mvnw.cmd .
+COPY favourite-service/.mvn .mvn
 
-# Copy pom.xml first for better layer caching
-COPY pom.xml .
-
-# Download dependencies (cached layer if pom.xml doesn't change)
-RUN mvn dependency:go-offline -B
+# Download dependencies for better layer caching
+RUN ./mvnw dependency:go-offline -B
 
 # Copy source code
-COPY src ./src
+COPY favourite-service/src src
 
 # Build the application
-RUN mvn clean package -DskipTests -B && \
-    mv target/favourite-service-v${PROJECT_VERSION}.jar target/favourite-service.jar
+RUN ./mvnw clean package -DskipTests
 
-# ======================================
-# STAGE 2: Runtime Stage
-# ======================================
-FROM eclipse-temurin:11-jre AS runtime
+# Extract JAR layers for better Docker layer caching
+RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../favourite-service-v*.jar)
 
-ARG PROJECT_VERSION=0.1.0
+# Runtime stage
+FROM eclipse-temurin:11-jre
 
 # Create non-root user for security
-RUN groupadd -g 1001 app && \
-    useradd -r -u 1001 -g app app
+RUN groupadd -r favouriteservice && useradd -r -g favouriteservice favouriteservice
+
+# Install security updates
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends dumb-init curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/app
+
+# Copy JAR layers from build stage
+COPY --from=build --chown=favouriteservice:favouriteservice /workspace/app/target/dependency/BOOT-INF/lib lib
+COPY --from=build --chown=favouriteservice:favouriteservice /workspace/app/target/dependency/META-INF META-INF
+COPY --from=build --chown=favouriteservice:favouriteservice /workspace/app/target/dependency/BOOT-INF/classes .
+
+# Set up environment
+ENV SPRING_PROFILES_ACTIVE=kubernetes \
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
+
+USER favouriteservice
+
+EXPOSE 8800
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8800/actuator/health || exit 1
+
+ENTRYPOINT ["dumb-init", "java"] 
+CMD ["-cp", ".:lib/*", "com.microservices.favouriteservice.FavouriteServiceApplication"]
 
 # Create app directory
 RUN mkdir -p /home/app && chown -R app:app /home/app

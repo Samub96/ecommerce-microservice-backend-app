@@ -1,39 +1,58 @@
 
+# Build stage
+FROM eclipse-temurin:11-jdk AS build
+
+WORKDIR /workspace/app
+
+# Copy maven files first for better layer caching
+COPY api-gateway/pom.xml .
+COPY api-gateway/mvnw .
+COPY api-gateway/mvnw.cmd .
+COPY api-gateway/.mvn .mvn
+
+# Download dependencies for better layer caching
+RUN ./mvnw dependency:go-offline -B
+
+# Copy source code
+COPY api-gateway/src src
+
+# Build the application
+RUN ./mvnw clean package -DskipTests
+
+# Extract JAR layers for better Docker layer caching
+RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../api-gateway-v*.jar)
+
+# Runtime stage
 FROM eclipse-temurin:11-jre
 
-ARG PROJECT_VERSION=0.1.0
-LABEL maintainer="ecommerce-microservice-backend"
-LABEL version="${PROJECT_VERSION}"
+# Create non-root user for security
+RUN groupadd -r apigateway && useradd -r -g apigateway apigateway
 
-# Create app directory
-RUN mkdir -p /home/app && \
-    groupadd -g 1001 appuser && \
-    useradd -r -u 1001 -g appuser appuser && \
-    chown -R appuser:appuser /home/app
+# Install security updates
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends dumb-init curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/app
 
-# Environment variables
-ENV SPRING_PROFILES_ACTIVE=dev
-ENV JAVA_OPTS="-Xmx512m -Xms256m"
+# Copy JAR layers from build stage
+COPY --from=build --chown=apigateway:apigateway /workspace/app/target/dependency/BOOT-INF/lib lib
+COPY --from=build --chown=apigateway:apigateway /workspace/app/target/dependency/META-INF META-INF
+COPY --from=build --chown=apigateway:apigateway /workspace/app/target/dependency/BOOT-INF/classes .
 
-# Copy JAR file
-COPY api-gateway/target/api-gateway-v${PROJECT_VERSION}.jar api-gateway.jar
+# Set up environment
+ENV SPRING_PROFILES_ACTIVE=kubernetes \
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
 
-# Change ownership to non-root user
-RUN chown appuser:appuser api-gateway.jar
+USER apigateway
 
-# Switch to non-root user
-USER appuser
-
-# Expose port
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# Entry point
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dspring.profiles.active=${SPRING_PROFILES_ACTIVE} -jar api-gateway.jar"]
+ENTRYPOINT ["dumb-init", "java"] 
+CMD ["-cp", ".:lib/*", "com.microservices.apigateway.ApiGatewayApplication"]
 
 

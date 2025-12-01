@@ -1,32 +1,59 @@
 
-# Multi-stage optimized Dockerfile for Cloud Config
-ARG JAVA_VERSION=11
-ARG PROJECT_VERSION=0.1.0
+# Build stage
+FROM eclipse-temurin:11-jdk AS build
 
-# Stage 1: Extract JAR layers for better caching
-FROM eclipse-temurin:11-jdk AS builder
-ARG PROJECT_VERSION
 WORKDIR /workspace/app
 
-# Copy the fat JAR
-COPY cloud-config/target/cloud-config-v${PROJECT_VERSION}.jar application.jar
+# Copy maven files first for better layer caching
+COPY cloud-config/pom.xml .
+COPY cloud-config/mvnw .
+COPY cloud-config/mvnw.cmd .
+COPY cloud-config/.mvn .mvn
 
-# Extract the layers
-RUN java -Djarmode=layertools -jar application.jar extract
+# Download dependencies for better layer caching
+RUN ./mvnw dependency:go-offline -B
 
-# Stage 2: Runtime image
+# Copy source code
+COPY cloud-config/src src
+
+# Build the application
+RUN ./mvnw clean package -DskipTests
+
+# Extract JAR layers for better Docker layer caching
+RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../cloud-config-v*.jar)
+
+# Runtime stage
 FROM eclipse-temurin:11-jre
 
-ARG PROJECT_VERSION=0.1.0
-LABEL maintainer="ecommerce-microservice-backend"
-LABEL version="${PROJECT_VERSION}"
-LABEL service="cloud-config"
+# Create non-root user for security
+RUN groupadd -r cloudconfig && useradd -r -g cloudconfig cloudconfig
 
-# Install curl for health checks and create app user
-RUN apt-get update && apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    groupadd -g 1001 appgroup && \
-    useradd -r -u 1001 -g appgroup appuser
+# Install security updates
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends dumb-init curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/app
+
+# Copy JAR layers from build stage
+COPY --from=build --chown=cloudconfig:cloudconfig /workspace/app/target/dependency/BOOT-INF/lib lib
+COPY --from=build --chown=cloudconfig:cloudconfig /workspace/app/target/dependency/META-INF META-INF
+COPY --from=build --chown=cloudconfig:cloudconfig /workspace/app/target/dependency/BOOT-INF/classes .
+
+# Set up environment
+ENV SPRING_PROFILES_ACTIVE=kubernetes \
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
+
+USER cloudconfig
+
+EXPOSE 9296
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:9296/actuator/health || exit 1
+
+ENTRYPOINT ["dumb-init", "java"] 
+CMD ["-cp", ".:lib/*", "com.microservices.cloudconfig.CloudConfigApplication"]
 
 # Set working directory
 WORKDIR /app
