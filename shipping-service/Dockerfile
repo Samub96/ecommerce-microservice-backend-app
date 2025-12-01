@@ -10,6 +10,9 @@ COPY shipping-service/mvnw .
 COPY shipping-service/mvnw.cmd .
 COPY shipping-service/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

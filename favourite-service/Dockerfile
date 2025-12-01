@@ -10,6 +10,9 @@ COPY favourite-service/mvnw .
 COPY favourite-service/mvnw.cmd .
 COPY favourite-service/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

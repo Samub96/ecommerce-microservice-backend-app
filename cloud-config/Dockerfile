@@ -10,6 +10,9 @@ COPY cloud-config/mvnw .
 COPY cloud-config/mvnw.cmd .
 COPY cloud-config/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

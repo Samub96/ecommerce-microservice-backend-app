@@ -10,6 +10,9 @@ COPY order-service/mvnw .
 COPY order-service/mvnw.cmd .
 COPY order-service/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

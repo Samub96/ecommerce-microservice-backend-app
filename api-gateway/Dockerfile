@@ -10,6 +10,9 @@ COPY api-gateway/mvnw .
 COPY api-gateway/mvnw.cmd .
 COPY api-gateway/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

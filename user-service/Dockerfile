@@ -10,6 +10,9 @@ COPY user-service/mvnw .
 COPY user-service/mvnw.cmd .
 COPY user-service/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

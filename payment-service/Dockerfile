@@ -10,6 +10,9 @@ COPY payment-service/mvnw .
 COPY payment-service/mvnw.cmd .
 COPY payment-service/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 

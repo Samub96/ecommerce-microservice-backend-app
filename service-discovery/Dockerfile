@@ -10,6 +10,9 @@ COPY service-discovery/mvnw .
 COPY service-discovery/mvnw.cmd .
 COPY service-discovery/.mvn .mvn
 
+# Make mvnw executable
+RUN chmod +x ./mvnw
+
 # Download dependencies for better layer caching
 RUN ./mvnw dependency:go-offline -B
 
